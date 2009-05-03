@@ -30,7 +30,7 @@ POST_INSTALL = :
 NORMAL_UNINSTALL = :
 PRE_UNINSTALL = :
 POST_UNINSTALL = :
-bin_PROGRAMS = fuse$(EXEEXT)
+bin_PROGRAMS = ftrac$(EXEEXT)
 subdir = .
 DIST_COMMON = README $(am__configure_deps) $(srcdir)/Makefile.am \
 	$(srcdir)/Makefile.in $(srcdir)/config.h.in \
@@ -48,12 +48,12 @@ CONFIG_CLEAN_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 binPROGRAMS_INSTALL = $(INSTALL_PROGRAM)
 PROGRAMS = $(bin_PROGRAMS)
-am_fuse_OBJECTS = fuse-fuse.$(OBJEXT)
-fuse_OBJECTS = $(am_fuse_OBJECTS)
+am_ftrac_OBJECTS = ftrac-ftrac.$(OBJEXT)
+ftrac_OBJECTS = $(am_ftrac_OBJECTS)
 am__DEPENDENCIES_1 =
-fuse_DEPENDENCIES = $(am__DEPENDENCIES_1)
-fuse_LINK = $(CCLD) $(fuse_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) \
-	-o $@
+ftrac_DEPENDENCIES = $(am__DEPENDENCIES_1)
+ftrac_LINK = $(CCLD) $(ftrac_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) \
+	$(LDFLAGS) -o $@
 DEFAULT_INCLUDES = -I.@am__isrc@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
@@ -61,8 +61,8 @@ COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
 LINK = $(CCLD) $(AM_CFLAGS) $(CFLAGS) $(AM_LDFLAGS) $(LDFLAGS) -o $@
-SOURCES = $(fuse_SOURCES)
-DIST_SOURCES = $(fuse_SOURCES)
+SOURCES = $(ftrac_SOURCES)
+DIST_SOURCES = $(ftrac_SOURCES)
 ETAGS = etags
 CTAGS = ctags
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
@@ -163,10 +163,10 @@ sysconfdir = @sysconfdir@
 target_alias = @target_alias@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-fuse_SOURCES = fuse.c
-fuse_LDADD = $(FUSE_PROBE_LIBS)
-fuse_CFLAGS = $(FUSE_PROBE_CFLAGS)
-fuse_CPPFLAGS = -D_REENTRANT -DFUSE_USE_VERSION=26 -DLIBDIR=\"$(libdir)\"
+ftrac_SOURCES = ftrac.c
+ftrac_LDADD = $(FUSE_PROBE_LIBS)
+ftrac_CFLAGS = $(FUSE_PROBE_CFLAGS)
+ftrac_CPPFLAGS = -D_REENTRANT -DFUSE_USE_VERSION=26 -DLIBDIR=\"$(libdir)\"
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-am
 
@@ -245,9 +245,9 @@ uninstall-binPROGRAMS:
 
 clean-binPROGRAMS:
 	-test -z "$(bin_PROGRAMS)" || rm -f $(bin_PROGRAMS)
-fuse$(EXEEXT): $(fuse_OBJECTS) $(fuse_DEPENDENCIES) 
-	@rm -f fuse$(EXEEXT)
-	$(fuse_LINK) $(fuse_OBJECTS) $(fuse_LDADD) $(LIBS)
+ftrac$(EXEEXT): $(ftrac_OBJECTS) $(ftrac_DEPENDENCIES) 
+	@rm -f ftrac$(EXEEXT)
+	$(ftrac_LINK) $(ftrac_OBJECTS) $(ftrac_LDADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -255,7 +255,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fuse-fuse.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ftrac-ftrac.Po@am__quote@
 
 .c.o:
 @am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
@@ -271,19 +271,19 @@ distclean-compile:
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(COMPILE) -c `$(CYGPATH_W) '$<'`
 
-fuse-fuse.o: fuse.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(fuse_CPPFLAGS) $(CPPFLAGS) $(fuse_CFLAGS) $(CFLAGS) -MT fuse-fuse.o -MD -MP -MF $(DEPDIR)/fuse-fuse.Tpo -c -o fuse-fuse.o `test -f 'fuse.c' || echo '$(srcdir)/'`fuse.c
-@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/fuse-fuse.Tpo $(DEPDIR)/fuse-fuse.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='fuse.c' object='fuse-fuse.o' libtool=no @AMDEPBACKSLASH@
+ftrac-ftrac.o: ftrac.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(ftrac_CPPFLAGS) $(CPPFLAGS) $(ftrac_CFLAGS) $(CFLAGS) -MT ftrac-ftrac.o -MD -MP -MF $(DEPDIR)/ftrac-ftrac.Tpo -c -o ftrac-ftrac.o `test -f 'ftrac.c' || echo '$(srcdir)/'`ftrac.c
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/ftrac-ftrac.Tpo $(DEPDIR)/ftrac-ftrac.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='ftrac.c' object='ftrac-ftrac.o' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(fuse_CPPFLAGS) $(CPPFLAGS) $(fuse_CFLAGS) $(CFLAGS) -c -o fuse-fuse.o `test -f 'fuse.c' || echo '$(srcdir)/'`fuse.c
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(ftrac_CPPFLAGS) $(CPPFLAGS) $(ftrac_CFLAGS) $(CFLAGS) -c -o ftrac-ftrac.o `test -f 'ftrac.c' || echo '$(srcdir)/'`ftrac.c
 
-fuse-fuse.obj: fuse.c
-@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(fuse_CPPFLAGS) $(CPPFLAGS) $(fuse_CFLAGS) $(CFLAGS) -MT fuse-fuse.obj -MD -MP -MF $(DEPDIR)/fuse-fuse.Tpo -c -o fuse-fuse.obj `if test -f 'fuse.c'; then $(CYGPATH_W) 'fuse.c'; else $(CYGPATH_W) '$(srcdir)/fuse.c'; fi`
-@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/fuse-fuse.Tpo $(DEPDIR)/fuse-fuse.Po
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='fuse.c' object='fuse-fuse.obj' libtool=no @AMDEPBACKSLASH@
+ftrac-ftrac.obj: ftrac.c
+@am__fastdepCC_TRUE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(ftrac_CPPFLAGS) $(CPPFLAGS) $(ftrac_CFLAGS) $(CFLAGS) -MT ftrac-ftrac.obj -MD -MP -MF $(DEPDIR)/ftrac-ftrac.Tpo -c -o ftrac-ftrac.obj `if test -f 'ftrac.c'; then $(CYGPATH_W) 'ftrac.c'; else $(CYGPATH_W) '$(srcdir)/ftrac.c'; fi`
+@am__fastdepCC_TRUE@	mv -f $(DEPDIR)/ftrac-ftrac.Tpo $(DEPDIR)/ftrac-ftrac.Po
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	source='ftrac.c' object='ftrac-ftrac.obj' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(fuse_CPPFLAGS) $(CPPFLAGS) $(fuse_CFLAGS) $(CFLAGS) -c -o fuse-fuse.obj `if test -f 'fuse.c'; then $(CYGPATH_W) 'fuse.c'; else $(CYGPATH_W) '$(srcdir)/fuse.c'; fi`
+@am__fastdepCC_FALSE@	$(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(ftrac_CPPFLAGS) $(CPPFLAGS) $(ftrac_CFLAGS) $(CFLAGS) -c -o ftrac-ftrac.obj `if test -f 'ftrac.c'; then $(CYGPATH_W) 'ftrac.c'; else $(CYGPATH_W) '$(srcdir)/ftrac.c'; fi`
 
 ID: $(HEADERS) $(SOURCES) $(LISP) $(TAGS_FILES)
 	list='$(SOURCES) $(HEADERS) $(LISP) $(TAGS_FILES)'; \
