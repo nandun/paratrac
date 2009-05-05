@@ -62,7 +62,7 @@ FUSE tool for file system calls tracking
 #error FUSE_VERSION < 23
 #endif
 
-#define	SOCKPATH_PREFIX	"/tmp/gprofiler-"
+#define	PATH_PREFIX	"/tmp"
 #define SERVER_MAX_CONN 8
 #define SERVER_MAX_BUFF	256
 
@@ -74,6 +74,7 @@ FUSE tool for file system calls tracking
 #define POLL_FILESYSTEM '2'
 #define POLL_FILE		'3'
 #define POLL_DIRECTORY 	'4'
+#define POLL_FINISH		'5'
 #define POLL_UNKNOWN 	'x'
 
 /* system call statistics */
@@ -184,9 +185,9 @@ struct ftrac {
 	pid_t pid;
 
 	/* polling server */
-	int sockfd;
-	char *sockdir;
+	char *sessiondir;
 	char *sockpath;
+	int sockfd;
 	int serv_started;
 	pthread_t serv_thread;
 
@@ -203,6 +204,8 @@ struct ftrac {
 	/* struct hash_table procs */
 };
 
+static struct ftrac ftrac;
+
 #define FTRAC_OPT(t, p, v) { t, offsetof(struct ftrac, p), v }
 
 enum {
@@ -212,7 +215,7 @@ enum {
 };
 
 static struct fuse_opt ftrac_opts[] = {
-	FTRAC_OPT("sockpath=%s",	sockpath, 0),
+	FTRAC_OPT("sessiondir=%s",	sessiondir, 0),
 
 	FUSE_OPT_KEY("-V",			KEY_VERSION),
 	FUSE_OPT_KEY("--version",	KEY_VERSION),
@@ -223,8 +226,6 @@ static struct fuse_opt ftrac_opts[] = {
 	FUSE_OPT_KEY("-f",          KEY_FOREGROUND),
 	FUSE_OPT_END
 };
-
-static struct ftrac ftrac;
 
 /*********** statistic processing routines **********/
 static inline void stat_sc_update(stat_sc_t sc,	time_t timestamp, 
@@ -277,8 +278,8 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 		"'listxattr':(%ld,%lu,%f,%d),"
 		"'removexattr':(%ld,%lu,%f,%d)"
 #endif
-		"'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
-		"'write':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
+		",'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
+		"'write':(%ld,%lu,%f,%d,%lu,%lu,%lu)"
 		"}",
 		fs->stat.atime, fs->stat.cnt, fs->stat.elapsed, fs->stat.pid,
 		fs->access.atime, fs->access.cnt, fs->access.elapsed, fs->access.pid,
@@ -350,9 +351,9 @@ static char * stat_file_to_dictstr(stat_file_t f)
 		"'listxattr':(%ld,%lu,%f,%d),"
 		"'removexattr':(%ld,%lu,%f,%d)"
 #endif
-		"'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
+		",'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
 		"'write':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
-		"'born':%ld"
+		"'born':%ld,"
 		"'dead':%ld"
 		"}",
 		f->stat.atime, f->stat.cnt, f->stat.elapsed, f->stat.pid,
@@ -539,7 +540,7 @@ static void hash_table_destroy(hash_table_t hashtable)
 }
 
 #ifdef FTRAC_TRACE_FILE
-static stat_file_t files_lookup(hash_table_t hashtable, const char *path)
+static stat_file_t files_retrieve(hash_table_t hashtable, const char *path)
 {
 	stat_file_t p = (stat_file_t) g_hash_table_lookup(hashtable->table, path);
 	if (!p) {
@@ -549,6 +550,11 @@ static stat_file_t files_lookup(hash_table_t hashtable, const char *path)
 		pthread_mutex_unlock(&hashtable->lock);
 	}
 	return p;
+}
+
+static inline stat_file_t files_lookup(hash_table_t hashtable, const char *path)
+{
+	return (stat_file_t) g_hash_table_lookup(hashtable->table, path);
 }
 
 static stat_file_t files_accumulate(hash_table_t hashtable, const char *path)
@@ -604,21 +610,25 @@ static void * polling_process_func(void *data)
         switch(recvbuf[0]) {
             case POLL_STAT:
                 err = polling_stat(sockfd, recvbuf);
-                goto out;
+                break;
 			
 			case POLL_FILESYSTEM:
 				err = polling_filesystem(sockfd, recvbuf);
-				goto out;
+				break;
 			
 			case POLL_FILE:
 				err = polling_file(sockfd, recvbuf);
-				goto out;
+				break;
 
 			case POLL_DIRECTORY:
 				err = polling_directory(sockfd, recvbuf);
-				goto out;
+				break;
+		    
+            case POLL_FINISH:
+				err = 0;
+                goto out;
 			
-			default:
+            default:
 				err = polling_unknown(sockfd, recvbuf);
 				goto out;
         }
@@ -668,7 +678,7 @@ static int polling_stat(int sockfd, char *buf)
 
 	/* send back as python dic string */
 	sendbuf = g_strdup_printf("{"
-		"'tracker':'fuse',"
+		"'tracker':'ftrac',"
 		"'username':'%s','mountpoint':'%s',"
 		"'start':'%ld','elapsed':'%ld'"
 		"}",
@@ -705,7 +715,10 @@ static int polling_file(int sockfd, char *buf)
 	char *sendbuf;
 	
 	stat_file_t file = files_lookup(&ftrac.files, buf+2);
-	sendbuf = stat_file_to_dictstr(file);
+	if (file)
+		sendbuf = stat_file_to_dictstr(file);
+	else
+		sendbuf = g_strdup("None");
 	res = send(sockfd, sendbuf, strlen(sendbuf), 0);
 	if (res < 0) {
         fprintf(stderr, "send failed, %s\n", strerror(errno));
@@ -720,8 +733,12 @@ static int polling_directory(int sockfd, char *buf)
 	int res, err = 0;
 	char *sendbuf;
 	
-	stat_file_t file = files_lookup(&ftrac.files, buf+2);
-	sendbuf = stat_file_to_dictstr(file);
+	stat_file_t file = files_accumulate(&ftrac.files, buf+2);
+	if (file) {
+		sendbuf = stat_file_to_dictstr(file);
+		g_free(file);
+	} else
+		sendbuf = g_strdup("None");
 	res = send(sockfd, sendbuf, strlen(sendbuf), 0);
 	if (res < 0) {
         fprintf(stderr, "send failed, %s\n", strerror(errno));
@@ -774,7 +791,7 @@ static int ftrac_getattr(const char *path, struct stat *stbuf)
 	
 	/* only record when file exists */
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->stat, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -804,7 +821,7 @@ static int ftrac_access(const char *path, int mask)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->access, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -836,7 +853,7 @@ static int ftrac_readlink(const char *path, char *buf, size_t size)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-    stat_file_t file = files_lookup(&ftrac.files, path);
+    stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->readlink, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -877,7 +894,7 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-		stat_file_t file = files_lookup(&ftrac.files, path);
+		stat_file_t file = files_retrieve(&ftrac.files, path);
 		pthread_mutex_lock(&file->lock);
 		stat_sc_update(&file->stat, stamp, elapsed, pid);
 		pthread_mutex_unlock(&file->lock);
@@ -933,7 +950,7 @@ static int ftrac_mknod(const char *path, mode_t mode, dev_t rdev)
 		return -errno;
 
 #ifdef FTRAC_TRACE_FILE
-    stat_file_t file = files_lookup(&ftrac.files, path);
+    stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->mknod, stamp, elapsed, pid);
 	file->born = stamp;		/* file created */
@@ -967,7 +984,7 @@ static int ftrac_mkdir(const char *path, mode_t mode)
 		return -errno;
 
 #ifdef FTRAC_TRACE_FILE
-    stat_file_t file = files_lookup(&ftrac.files, path);
+    stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->mkdir, stamp, elapsed, pid);
 	file->born = stamp;		/* directory created */
@@ -1001,7 +1018,7 @@ static int ftrac_unlink(const char *path)
 		return -errno;
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->unlink, stamp, elapsed, pid);
 	file->dead = stamp;		/* file deleted */
@@ -1035,7 +1052,7 @@ static int ftrac_rmdir(const char *path)
 		return -errno;
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->rmdir, stamp, elapsed, pid);
 	file->dead = stamp;
@@ -1070,7 +1087,7 @@ static int ftrac_symlink(const char *from, const char *to)
 
 #ifdef FTRAC_TRACE_FILE
     /* TODO: which one should count? or both? */
-	stat_file_t file = files_lookup(&ftrac.files, to);
+	stat_file_t file = files_retrieve(&ftrac.files, to);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->symlink, stamp, elapsed, pid);
 	file->born = stamp;
@@ -1105,13 +1122,13 @@ static int ftrac_rename(const char *from, const char *to)
 
 #ifdef FTRAC_TRACE_FILE
     /* TODO: which one should count? migrate data? */
-	stat_file_t filefrom = files_lookup(&ftrac.files, from);
+	stat_file_t filefrom = files_retrieve(&ftrac.files, from);
 	pthread_mutex_lock(&filefrom->lock);
 	stat_sc_update(&filefrom->rename, stamp, elapsed, pid);
 	filefrom->dead = stamp;
 	pthread_mutex_unlock(&filefrom->lock);
 	
-	stat_file_t fileto = files_lookup(&ftrac.files, to);
+	stat_file_t fileto = files_retrieve(&ftrac.files, to);
 	pthread_mutex_lock(&fileto->lock);
 	stat_sc_update(&fileto->rename, stamp, elapsed, pid);
 	fileto->dead = stamp;
@@ -1145,7 +1162,7 @@ static int ftrac_link(const char *from, const char *to)
 		return -errno;
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, from);
+	stat_file_t file = files_retrieve(&ftrac.files, from);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->link, stamp, elapsed, pid);
 	file->born = stamp;
@@ -1176,7 +1193,7 @@ static int ftrac_chmod(const char *path, mode_t mode)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->chmod, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1208,7 +1225,7 @@ static int ftrac_chown(const char *path, uid_t uid, gid_t gid)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->chown, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1240,7 +1257,7 @@ static int ftrac_truncate(const char *path, off_t size)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->truncate, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1278,7 +1295,7 @@ static int ftrac_utimens(const char *path, const struct timespec ts[2])
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->utime, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1310,7 +1327,7 @@ static int ftrac_utime(const char *path, struct utimbuf *buf)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->utime, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1343,7 +1360,7 @@ static int ftrac_open(const char *path, struct fuse_file_info *fi)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->open, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1384,7 +1401,7 @@ static int ftrac_read(const char *path, char *buf, size_t size, off_t offset,
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_io_update(&file->read, stamp, elapsed, pid, size, offset);
 	pthread_mutex_unlock(&file->lock);
@@ -1423,7 +1440,7 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 	stat_io_update(&ftrac.fs.write, stamp, elapsed, pid, size, offset);
 #endif
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_io_update(&file->write, stamp, elapsed, pid, size, offset);
 	pthread_mutex_unlock(&file->lock);
@@ -1457,7 +1474,7 @@ static int ftrac_statfs(const char *path, struct statvfs *stbuf)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->statfs, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1493,7 +1510,7 @@ static int ftrac_release(const char *path, struct fuse_file_info *fi)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->release, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1529,7 +1546,7 @@ static int ftrac_fsync(const char *path, int isdatasync,
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->fsync, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1562,7 +1579,7 @@ static int ftrac_setxattr(const char *path, const char *name,
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->setxattr, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1595,7 +1612,7 @@ static int ftrac_getxattr(const char *path, const char *name, char *value,
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->getxattr, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1629,7 +1646,7 @@ static int ftrac_listxattr(const char *path, char *list, size_t size)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->listxattr, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1663,7 +1680,7 @@ static int ftrac_removexattr(const char *path, const char *name)
 #endif
 
 #ifdef FTRAC_TRACE_FILE
-	stat_file_t file = files_lookup(&ftrac.files, path);
+	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->removexattr, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
@@ -1729,8 +1746,9 @@ static void * ftrac_init(void)
     ft->start = time(NULL);
 	
 	/* create debug session */
+	/*
 	if (ftrac.foreground) {
-		char *tmp = g_strdup_printf("%s/session-debug", ftrac.sockdir);
+		char *tmp = g_strdup_printf("%s/debug", ftrac.sessiondir);
 		err = mkdir(tmp, S_IRUSR | S_IWUSR | S_IXUSR);
 		if (err == -1 && errno != EEXIST) {
 			fprintf(stderr, "failed to create directory %s, %s\n", 
@@ -1739,16 +1757,17 @@ static void * ftrac_init(void)
 		}
 		g_free(tmp);
 		
-		tmp = g_strdup_printf("%s/session-debug/fuse-ftrac", ftrac.sockdir); 
+		tmp = g_strdup_printf("%s/debug/ftrac", ftrac.sessiondir); 
 		unlink(tmp);
 		symlink(ftrac.sockpath, tmp);
 		g_free(tmp);
 
-		tmp = g_strdup_printf("%s/session-debug/mount-point", ftrac.sockdir); 
+		tmp = g_strdup_printf("%s/debug/mountpoint", ftrac.sessiondir); 
 		unlink(tmp);
 		symlink(ftrac.mountpoint, tmp);
 		g_free(tmp);
 	}
+	*/
 		
 	return NULL;
 }
@@ -1765,10 +1784,11 @@ static void ftrac_destroy(void *data_)
 #endif
 	pthread_cancel(ftrac.serv_thread);
 	close(ftrac.sockfd);
-	unlink(ftrac.sockpath);
+	remove(ftrac.sockpath);
+	remove(ftrac.sessiondir);
     g_free(ftrac.username);
 	g_free(ftrac.sockpath);
-	g_free(ftrac.sockdir);
+	g_free(ftrac.sessiondir);
 	g_free(ftrac.mountpoint);
 }
 
@@ -1809,6 +1829,19 @@ static struct fuse_operations ftrac_oper = {
 #endif
 };
 
+static void usage(const char *progname)
+{
+	fprintf(stderr,
+"usage: %s mountpoint [options]\n"
+"\n"
+"general options:\n"
+"    -o opt,[opt...]        mount options\n"
+"    -h   --help            print help\n"
+"    -V   --version         print version\n"
+"    -o sessiondir=PATH     session directory\n"
+"\n", progname);
+}
+
 static int ftrac_fuse_main(struct fuse_args *args)
 {
 #if FUSE_VERSION >= 26
@@ -1835,8 +1868,120 @@ static int fuse_opt_insert_arg(struct fuse_args *args, int pos, const char *arg)
 }
 #endif
 
+static int ftrac_opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
+{
+	(void) data;
+	(void) arg;
+	
+	switch(key) {
+		case FUSE_OPT_KEY_OPT:
+			return 1;
+		
+		case FUSE_OPT_KEY_NONOPT:
+			return 1;
+
+		case KEY_HELP:
+			usage(outargs->argv[0]);
+			fuse_opt_add_arg(outargs, "-ho");
+			ftrac_fuse_main(outargs);
+			exit(1);
+
+		case KEY_VERSION:
+			fprintf(stderr, "FUSETrack version %s\n", PACKAGE_VERSION);
+#if FUSE_VERSION >= 25
+			fuse_opt_add_arg(outargs, "--version");
+			ftrac_fuse_main(outargs);
+#endif
+			exit(0);
+
+		case KEY_FOREGROUND:
+			ftrac.foreground = 1;
+			return 1;
+
+		default:
+			fprintf(stderr, "internal error\n");
+			abort();
+	}
+}
+
+/* use self-defined string hash to release library dependency */
+static unsigned int ftrac_string_hash(char *str)
+{
+	unsigned int hash = 0;
+	int i = 0;
+	
+	while (str[i]) {
+		hash += str[i] * (i + 1);
+		i++;
+	}
+
+	return hash;
+}
+
 /*********** main entry **********/
 int main(int argc, char * argv[])
 {
+	struct passwd *pwd;
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	char *fsname, *tmp;
+	int libver, res;
+    
+	if (!g_thread_supported())
+        g_thread_init(NULL);
+	
+	ftrac.progname = argv[0];
+	
+	if (fuse_opt_parse(&args, &ftrac, ftrac_opts, ftrac_opt_proc) == -1)
+		exit(1);
+	
+	/* get mountpoint */
+	if (fuse_parse_cmdline(&args, &(ftrac.mountpoint), NULL, NULL) == -1)
+		exit(1);
+	if (!ftrac.mountpoint) {
+		fprintf(stderr, "%s: missing mount point\n", ftrac.progname);
+		fprintf(stderr, "see `%s -h' for usage\n", ftrac.progname);
+		fuse_opt_free_args(&args);
+		exit(1);
+	}
+	/* ftrac.mountpoint is already absolute path here */
+	fuse_opt_insert_arg(&args, 1, ftrac.mountpoint);
+    
+	/* setup environments */
+	ftrac.uid = getuid();
+	pwd = getpwuid(ftrac.uid);
+	if (!pwd) {
+		fprintf(stderr, "failed to get username for uid %d\n", ftrac.uid);
+		exit(1);
+	}
+
+    ftrac.username = g_strdup(pwd->pw_name);
+	if (!ftrac.sessiondir)
+		ftrac.sessiondir = g_strdup_printf("%s/ftrac-%s-%u", PATH_PREFIX, 
+			ftrac.username, ftrac_string_hash(ftrac.mountpoint));
+    res = mkdir(ftrac.sessiondir, S_IRUSR | S_IWUSR | S_IXUSR);
+    if (res == -1 && errno != EEXIST) {
+		fprintf(stderr, "failed to create directory %s, %s\n", 
+				ftrac.sessiondir, strerror(errno));
+		return -1;
+    }
+	
+	ftrac.sockpath = g_strdup_printf("%s/ftrac.sock", ftrac.sessiondir);
+	
+	fsname = g_strdup("profiler");
+#if FUSE_VERSION >= 27
+	libver = fuse_version();
+	assert(libver >= 27);
+	tmp = g_strdup_printf("-osubtype=fuse,fsname=%s", fsname);
+#else
+	tmp = g_strdup_printf("-ofsname=fuse#%s", fsname);
+#endif
+	fuse_opt_insert_arg(&args, 1, tmp);
+	g_free(tmp);
+    
+	res = ftrac_fuse_main(&args);
+	
+	fuse_opt_free_args(&args);
+	g_free(fsname);
+	
 	return 0;
 }

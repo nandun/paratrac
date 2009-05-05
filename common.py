@@ -23,17 +23,28 @@ import optparse
 import textwrap
 import time
 
-__all__ = ["PARATRAC_VERSION", "PARATRAC_DATE",
-           "KB", "MB", "GB",
-           "OptionParserHelpFormatter"]
-
 PARATRAC_VERSION = 0.1
-PARATRAC_DATE = "2009-05-01"
+PARATRAC_DATE = "2009-05-04"
 
 KB = 1024
 MB = 1048576
 GB = 1073741824
 TB = 1099511627776
+
+
+# ftrac constance, keep consistent with fuse/ftrac.c
+FTRAC_SYSCALL = ["stat", "access", "readlink", "readdir", "mknod", "mkdir",
+    "symlink", "unlink", "rmdir", "rename", "link", "chmod", "chown",
+    "truncate", "utime", "open", "statfs", "release", "fsync"]
+FTRAC_IOCALL = ["read", "write"]
+
+FTRAC_PATH_PREFIX = "/tmp"
+FTRAC_POLL_STAT = '1'
+FTRAC_POLL_FILESYSTEM = '2'
+FTRAC_POLL_FILE = '3'
+FTRAC_POLL_DIRECTORY = '4'
+FTRAC_POLL_FINISH = '5'
+FTRAC_POLL_UNKNOWN = 'x'
 
 if sys.platform == "win32":
     timer = time.clock
@@ -73,6 +84,12 @@ def smart_datasize(size):
     if size < TB:
         return (size/GB, "GB")
     return (size/TB, "TB")
+
+def string_hash(str):
+    hash = 0
+    for i in range(0, len(str)):
+        hash = hash + ord(str[i]) * (i + 1);
+    return hash
 
 # list utilities
 def list_unique(a):
