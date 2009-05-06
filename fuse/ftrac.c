@@ -636,6 +636,7 @@ static void * polling_process_func(void *data)
 	} while (res >= 0);
 
   out:
+    close(sockfd);
 	err ? pthread_exit((void *) 1) : pthread_exit((void *) 0);	
 }
 
