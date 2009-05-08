@@ -1,0 +1,12 @@
+2009-0x-0x Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* report to pretty html by amCharts
+	* add system call statistics
+	* bug fixes
+
+2009-05-06 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Paramark v0.1 release
+	* fusetrac.py with basic file system calls tracking by FUSE
+	* monitoring by curses interface
+	* Paramark v0.1 release
+	* fusetrac.py with basic file system calls tracking by FUSE
+	* monitoring by curses interface

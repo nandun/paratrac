@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <data_type>csv</data_type>
+  <csv_separator>,</csv_separator>
+  <skip_rows>1</skip_rows>
+  <decimals_separator>.</decimals_separator>
+  <thousands_separator>,</thousands_separator>
+  <font>Tahoma</font> 
+  <scroller>
+    <enabled>1</enabled>
+    <y>!10</y>
+    <color>BBBB00</color>
+  </scroller>
+  <plot_area>
+    <margins>
+      <right>10</right>
+    </margins>
+  </plot_area>
+  <grid>
+    <x>
+      <enabled>0</enabled>
+    </x>
+    <y_left>
+      <dashed>1</dashed>
+    </y_left>
+  </grid>
+  <values>
+    <x>
+      <enabled>0</enabled>
+    </x>
+  </values>
+  <axes>
+    <x>
+      <width>1</width>
+    </x>
+    <y_left>
+      <width>1</width>
+    </y_left>
+  </axes>
+  <legend>
+    <width>100%</width>
+  </legend>
+  <graphs>
+    <graph gid="1">
+      <title>stat</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="2">
+      <title>access</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="3">
+      <title>readlink</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="4">
+      <title>readdir</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="5">
+      <title>mknod</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="6">
+      <title>mkdir</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="7">
+      <title>symlink</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="8">
+      <title>unlink</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="9">
+      <title>rmdir</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="10">
+      <title>rename</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="11">
+      <title>link</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="12">
+      <title>chmod</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="13">
+      <title>chown</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="14">
+      <title>truncate</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="15">
+      <title>utime</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="16">
+      <title>open</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="17">
+      <title>statfs</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="18">
+      <title>release</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="19">
+      <title>fsync</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="20">
+      <title>read</title>
+      <selected>0</selected>
+    </graph>
+    <graph gid="21">
+      <title>write</title>
+      <selected>0</selected>
+    </graph>
+  </graphs>
+</settings>

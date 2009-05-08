@@ -62,9 +62,45 @@ FUSE tool for file system calls tracking
 #error FUSE_VERSION < 23
 #endif
 
+/* 
+ * system call number
+ * like the definitions in <syscall.h>
+ * use paratrac its own definition
+ */
+
+#define SYSC_LSTAT          84
+#define SYSC_ACCESS         33
+#define SYSC_READLINK       85
+#define SYSC_READDIR        89
+#define SYSC_MKNOD          14
+#define SYSC_MKDIR          39
+#define SYSC_UNLINK         10
+#define SYSC_RMDIR          40
+#define SYSC_SYMLINK        83
+#define SYSC_RENAME         38
+#define SYSC_LINK           9
+#define SYSC_CHMOD          15
+#define SYSC_CHOWN          16      /* lchown() */
+#define SYSC_TRUNCATE       92
+#define SYSC_UTIME          30
+#define SYSC_OPEN           5
+#define SYSC_READ           3
+#define SYSC_WRITE          4
+#define SYSC_STATFS         99
+#define SYSC_FSYNC          118
+#ifdef HAVE_SETXATTR        
+#define SYSC_SETXATTR       201
+#define SYSC_GETXATTR       202
+#define SYSC_LISTXATTR      203
+#define SYSC_REMOVEXATTR    204
+#endif
+
 #define	PATH_PREFIX	"/tmp"
 #define SERVER_MAX_CONN 8
 #define SERVER_MAX_BUFF	256
+
+#define FTRAC_MODE_POLL     0
+#define FTRAC_MODE_TRACK    1
 
 #define FTRAC_TRACE_SYSTEM
 #define FTRAC_TRACE_FILE
@@ -96,6 +132,14 @@ typedef struct stat_io {
 	off_t offset;			/* offset for file access */
 	unsigned long bytes;	/* total bytes */
 } * stat_io_t;
+
+/* system call record */
+typedef struct rec_sc {
+    unsigned sysc;          /* system call number */
+    time_t atime;
+    double elapsed;
+    pid_t pid;              /* caller's pid */
+} * rec_sc_t;
 
 /* filesystem global statistics */
 typedef struct stat_filesystem {
@@ -164,7 +208,9 @@ typedef struct stat_file {
 	
 	time_t born;	/* time stamp when file is created */
 	time_t dead;	/* time stamp when file is deleted */
-	
+    
+    time_t atime;   /* access time, for cleanup */
+
 	pthread_mutex_t lock;
 } * stat_file_t;
 #endif
@@ -183,8 +229,9 @@ struct ftrac {
 	uid_t uid;
 	gid_t gid;
 	pid_t pid;
+    int mode;       /* running mode: poll/track */
 
-	/* polling server */
+	/* server */
 	char *sessiondir;
 	char *sockpath;
 	int sockfd;
@@ -201,7 +248,9 @@ struct ftrac {
 #ifdef FTRAC_TRACE_PROC
 	struct hash_table procs;
 #endif
-	/* struct hash_table procs */
+
+    /* hash_table managment */
+    long cache_timeout;
 };
 
 static struct ftrac ftrac;
@@ -215,7 +264,8 @@ enum {
 };
 
 static struct fuse_opt ftrac_opts[] = {
-	FTRAC_OPT("sessiondir=%s",	sessiondir, 0),
+	FTRAC_OPT("sessiondir=%s",	    sessiondir, 0),
+	FTRAC_OPT("cache_timeout=%ld",	cache_timeout, 0),
 
 	FUSE_OPT_KEY("-V",			KEY_VERSION),
 	FUSE_OPT_KEY("--version",	KEY_VERSION),
@@ -549,12 +599,16 @@ static stat_file_t files_retrieve(hash_table_t hashtable, const char *path)
 		g_hash_table_insert(hashtable->table, g_strdup(path), p);
 		pthread_mutex_unlock(&hashtable->lock);
 	}
+    p->atime = time(NULL);
 	return p;
 }
 
 static inline stat_file_t files_lookup(hash_table_t hashtable, const char *path)
 {
-	return (stat_file_t) g_hash_table_lookup(hashtable->table, path);
+    stat_file_t p = (stat_file_t) g_hash_table_lookup(hashtable->table, path);
+    if (p)
+        p->atime = time(NULL);
+    return p;
 }
 
 static stat_file_t files_accumulate(hash_table_t hashtable, const char *path)
@@ -577,6 +631,31 @@ static stat_file_t files_accumulate(hash_table_t hashtable, const char *path)
 		file = NULL;
 	}
 	return file;
+}
+
+struct nowandtimeout {
+    time_t now;
+    time_t timeout;
+};
+
+static inline int if_entry_old(void *key, void *data, void* user_data)
+{
+    stat_file_t file = (stat_file_t) data;
+    struct nowandtimeout *pair = (struct nowandtimeout *) user_data;
+    (void) key;
+    return pair->now - file->atime > pair->timeout ? 1 : 0;
+}
+
+static void files_cleanup(hash_table_t hashtable, time_t timeout)
+{
+    struct nowandtimeout pair;
+    pair.now = time(NULL);
+    pair.timeout = timeout;
+
+	pthread_mutex_lock(&hashtable->lock);
+    g_hash_table_foreach_remove(hashtable->table, if_entry_old,
+        (void *) &pair);
+	pthread_mutex_unlock(&hashtable->lock);
 }
 #endif
 
@@ -645,6 +724,7 @@ static void * polling_process(void *data)
 	int sockfd, len;
 	struct sockaddr_un clntaddr;
 	pthread_t thread_id;
+    time_t last_cleanup = time(NULL);
 	(void) data;
 	
 	len = sizeof(struct sockaddr_un);
@@ -664,6 +744,15 @@ static void * polling_process(void *data)
 			}
 			pthread_detach(thread_id);
 		}
+
+#ifdef FTRAC_TRACE_FILE
+        /* reuse polling server thread to do cleanup */
+        if (time(NULL) - last_cleanup > ftrac.cache_timeout) {
+            files_cleanup(&ftrac.files, ftrac.cache_timeout);
+            last_cleanup = time(NULL);
+        }
+#endif
+        
 	} while(1);
 
 	return NULL;
@@ -714,7 +803,7 @@ static int polling_file(int sockfd, char *buf)
 {
 	int res, err = 0;
 	char *sendbuf;
-	
+    
 	stat_file_t file = files_lookup(&ftrac.files, buf+2);
 	if (file)
 		sendbuf = stat_file_to_dictstr(file);
@@ -1840,6 +1929,7 @@ static void usage(const char *progname)
 "    -h   --help            print help\n"
 "    -V   --version         print version\n"
 "    -o sessiondir=PATH     session directory\n"
+"    -o cache_timeout=NUM   cache timeout (default: 3600 seconds)\n"
 "\n", progname);
 }
 
@@ -1926,6 +2016,8 @@ int main(int argc, char * argv[])
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 	char *fsname, *tmp;
 	int libver, res;
+
+    ftrac.cache_timeout = 3600;
     
 	if (!g_thread_supported())
         g_thread_init(NULL);

@@ -31,21 +31,6 @@ MB = 1048576
 GB = 1073741824
 TB = 1099511627776
 
-
-# ftrac constance, keep consistent with fuse/ftrac.c
-FTRAC_SYSCALL = ["stat", "access", "readlink", "readdir", "mknod", "mkdir",
-    "symlink", "unlink", "rmdir", "rename", "link", "chmod", "chown",
-    "truncate", "utime", "open", "statfs", "release", "fsync"]
-FTRAC_IOCALL = ["read", "write"]
-
-FTRAC_PATH_PREFIX = "/tmp"
-FTRAC_POLL_STAT = '1'
-FTRAC_POLL_FILESYSTEM = '2'
-FTRAC_POLL_FILE = '3'
-FTRAC_POLL_DIRECTORY = '4'
-FTRAC_POLL_FINISH = '5'
-FTRAC_POLL_UNKNOWN = 'x'
-
 if sys.platform == "win32":
     timer = time.clock
 else:

@@ -1,3 +1,6 @@
+2009-0x-0x Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* add cache timeout option to reduce long-term memory usage
+
 2009-05-06 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* ftrac v0.1 release
 	* basic file system calls tracking
