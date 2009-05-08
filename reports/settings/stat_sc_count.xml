@@ -42,7 +42,7 @@
   </legend>
   <graphs>
     <graph gid="1">
-      <title>stattest</title>
+      <title>stat</title>
       <selected>0</selected>
     </graph>
     <graph gid="2">

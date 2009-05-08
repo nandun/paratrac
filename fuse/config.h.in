@@ -172,6 +172,9 @@
 /* Define to `long int' if <sys/types.h> does not define. */
 #undef off_t
 
+/* Define to `int' if <sys/types.h> does not define. */
+#undef pid_t
+
 /* Define to rpl_realloc if the replacement function should be used. */
 #undef realloc
 

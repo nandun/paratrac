@@ -1,4 +1,5 @@
 2009-0x-0x Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* invoke ftrac by mount/umount command
 	* report to pretty html by amCharts
 	* add system call statistics
 	* bug fixes

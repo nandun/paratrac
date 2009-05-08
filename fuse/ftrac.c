@@ -46,6 +46,7 @@ FUSE tool for file system calls tracking
 #include <utime.h>
 #include <assert.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/time.h>
@@ -98,6 +99,8 @@ FUSE tool for file system calls tracking
 #define	PATH_PREFIX	"/tmp"
 #define SERVER_MAX_CONN 8
 #define SERVER_MAX_BUFF	256
+
+#define FTRAC_SIGNAL_INIT   SIGUSR1
 
 #define FTRAC_MODE_POLL     0
 #define FTRAC_MODE_TRACK    1
@@ -251,6 +254,9 @@ struct ftrac {
 
     /* hash_table managment */
     long cache_timeout;
+
+    /* misc usage */
+    pid_t notify_pid;
 };
 
 static struct ftrac ftrac;
@@ -264,8 +270,9 @@ enum {
 };
 
 static struct fuse_opt ftrac_opts[] = {
-	FTRAC_OPT("sessiondir=%s",	    sessiondir, 0),
-	FTRAC_OPT("cache_timeout=%ld",	cache_timeout, 0),
+	FTRAC_OPT("sessiondir=%s",      sessiondir, 0),
+	FTRAC_OPT("cache_timeout=%ld",  cache_timeout, 0),
+	FTRAC_OPT("notify_pid=%d",      notify_pid, 0),
 
 	FUSE_OPT_KEY("-V",			KEY_VERSION),
 	FUSE_OPT_KEY("--version",	KEY_VERSION),
@@ -1858,7 +1865,16 @@ static void * ftrac_init(void)
 		g_free(tmp);
 	}
 	*/
-		
+	
+    /* 
+     * notify the caller we are done for initialization
+     * this is necessary when ftrac is exectued by another process
+     */
+    if (ftrac.notify_pid) {
+        assert(ftrac.notify_pid > 0);
+        kill(ftrac.notify_pid, FTRAC_SIGNAL_INIT);
+    }
+        
 	return NULL;
 }
 
@@ -1930,6 +1946,7 @@ static void usage(const char *progname)
 "    -V   --version         print version\n"
 "    -o sessiondir=PATH     session directory\n"
 "    -o cache_timeout=NUM   cache timeout (default: 3600 seconds)\n"
+"    -o notify_pid=PID      process to notify on enter fuse loop\n"
 "\n", progname);
 }
 
@@ -2009,6 +2026,40 @@ static unsigned int ftrac_string_hash(char *str)
 	return hash;
 }
 
+/* Remove commas from fsname, as it confuses the fuse option parser. */
+static void fsname_remove_commas(char *fsname)
+{
+	if (strchr(fsname, ',') != NULL) {
+		char *s = fsname;
+		char *d = s;
+
+		for (; *s; s++) {
+			if (*s != ',')
+				*d++ = *s;
+		}
+		*d = *s;
+	}
+}
+
+#if FUSE_VERSION >= 27
+static char *fsname_escape_commas(char *fsnameold)
+{
+	char *fsname = g_malloc(strlen(fsnameold) * 2 + 1);
+	char *d = fsname;
+	char *s;
+
+	for (s = fsnameold; *s; s++) {
+		if (*s == '\\' || *s == ',')
+			*d++ = '\\';
+		*d++ = *s;
+	}
+	*d = '\0';
+	g_free(fsnameold);
+
+	return fsname;
+}
+#endif
+
 /*********** main entry **********/
 int main(int argc, char * argv[])
 {
@@ -2060,21 +2111,25 @@ int main(int argc, char * argv[])
 	
 	ftrac.sockpath = g_strdup_printf("%s/ftrac.sock", ftrac.sessiondir);
 	
-	fsname = g_strdup("profiler");
+	fsname = g_strdup_printf("ftrac-%d", ftrac_string_hash(ftrac.mountpoint));
 #if FUSE_VERSION >= 27
 	libver = fuse_version();
 	assert(libver >= 27);
-	tmp = g_strdup_printf("-osubtype=fuse,fsname=%s", fsname);
+	if (libver >= 28)
+		fsname = fsname_escape_commas(fsname);
+	else
+		fsname_remove_commas(fsname);
+	tmp = g_strdup_printf("-osubtype=fstrac,fsname=%s", fsname);
 #else
-	tmp = g_strdup_printf("-ofsname=fuse#%s", fsname);
+	tmp = g_strdup_printf("-ofsname=fstrac#%s", fsname);
 #endif
 	fuse_opt_insert_arg(&args, 1, tmp);
 	g_free(tmp);
+	g_free(fsname);
     
 	res = ftrac_fuse_main(&args);
 	
 	fuse_opt_free_args(&args);
-	g_free(fsname);
 	
 	return 0;
 }

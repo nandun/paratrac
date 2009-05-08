@@ -17,17 +17,18 @@ CFLAGS="$CFLAGS -Wall -W"
 # Checks for header files.
 AC_HEADER_DIRENT
 AC_HEADER_STDC
+AC_HEADER_TIME
 AC_CHECK_HEADERS([fcntl.h string.h sys/time.h unistd.h sys/socket.h \
 utime.h])
 
 # Checks for typedefs, structures, and compiler characteristics.
 AC_C_CONST
-AC_TYPE_UID_T
 AC_C_INLINE
 AC_TYPE_MODE_T
 AC_TYPE_OFF_T
 AC_TYPE_SIZE_T
-AC_HEADER_TIME
+AC_TYPE_UID_T
+AC_TYPE_PID_T
 
 # Checks for library functions.
 AC_FUNC_MALLOC

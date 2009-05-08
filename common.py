@@ -23,8 +23,8 @@ import optparse
 import textwrap
 import time
 
-PARATRAC_VERSION = 0.1
-PARATRAC_DATE = "2009-05-04"
+PARATRAC_VERSION = 0.2
+PARATRAC_DATE = "2009-05-08"
 
 KB = 1024
 MB = 1048576

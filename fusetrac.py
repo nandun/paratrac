@@ -25,7 +25,9 @@ import errno
 import optparse
 import os
 import pwd
+import signal
 import socket
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -43,14 +45,21 @@ FTRAC_IOCALL = ["read", "write"]
 #FTRAC_STAT = ["count", "elapsed", "length", "offset", "bytes"]
 FTRAC_STAT_SC = ["sc_count", "sc_elapsed"]
 FTRAC_STAT_IO = ["io_summary"]
+CHART_TITLES = {}
+CHART_TITLES["sc_count"] = "Total System Call Count"
+CHART_TITLES["sc_elapsed"] = "Elapsed Time per System Call"
+CHART_TITLES["io_summary"] = "I/O Traffic Summary"
 
 FTRAC_PATH_PREFIX = "/tmp"
+FTRAC_SIGNAL_INIT = signal.SIGUSR1
 FTRAC_POLL_STAT = '1'
 FTRAC_POLL_FILESYSTEM = '2'
 FTRAC_POLL_FILE = '3'
 FTRAC_POLL_DIRECTORY = '4'
 FTRAC_POLL_FINISH = '5'
 FTRAC_POLL_UNKNOWN = 'x'
+
+GV_IF_CURSES_INIT = False
 
 class FUSETrac:
     def __init__(self, opts=None, **kw):
@@ -60,6 +69,7 @@ class FUSETrac:
         self.user = pwd.getpwuid(self.uid)[0]
         self.hostname = socket.gethostname()
         self.platform = " ".join(os.uname())
+        self.cmd = None
         
         self.mode = None
         self.mountpoint = None
@@ -71,6 +81,7 @@ class FUSETrac:
         self.report = None
         self.reportsclog = False
         self.reportappend = False
+        self.autoumount = False
         self.verbosity = 0
         self.dryrun = False
 
@@ -101,6 +112,7 @@ class FUSETrac:
         self.tracstart = None
         self.vcnt = 0
         self.start = None
+        self.end = None
 
         # data processing variables
         self.data = []
@@ -114,6 +126,8 @@ class FUSETrac:
         self.winmenu_y = None
 
         # report variables
+        self.reporton = False
+        self.reportflush = False
         self.reportscfd = {}    # file descriptors for each system call
         self.reportstatfd = {}  # file descriptors for each statistics
     
@@ -125,22 +139,42 @@ class FUSETrac:
         if mountpoint is None:
             mountpoint = self.mountpoint
         assert os.path.isdir(mountpoint)
-        if self.verbosity >= 2:
-            self.verbose("mount: os.system('%s %s')" % 
-                (self.ftrac, mountpoint))
         if self.dryrun:
             return
-        os.system("%s %s" % (self.ftrac, mountpoint))
+        
+        stauts, output = commands.getstatusoutput("%s %s -o notify_pid=%d" 
+            % (self.ftrac, mountpoint, self.pid))
+        if len(output):
+            es("%s\n" % output)
+            sys.exit(1)
+        
+        # since ftrac(fuse) will spawn another process,
+        # above startup process return does NOT mean fuse main loop is started,
+        # we should wait ftrac to notify us the initialization is done.
+        def signal_received(signum, stack):
+            pass
+        signal.signal(signal.SIGUSR1, signal_received)
+        signal.pause()
+        return 0
 
     def umount(self, mountpoint=None):
         if mountpoint is None:
             mountpoint = self.mountpoint
-        if self.verbosity >= 2:
-            self.verbose("umount: os.system('fusermount -u %s')" %
-                mountpoint)
         if self.dryrun:
             return
-        os.system("fusermount -u %s" % mountpoint)
+        _, output = commands.getstatusoutput("fusermount -u %s" % mountpoint)
+        if len(output):
+            es("warning: %s\n" % output)
+            sys.exit(1)
+    
+    def checkmountpoint(self, mountpoint=None):
+        if mountpoint is None:
+            mountpoint = self.mounpoint
+
+        # check if mountpoint is mounted by others 
+        f = open("/etc/mtab", "rb")
+        f.close
+        # check if mountpoint is empty
 
     # session routines
     def sessioninit(self):
@@ -152,31 +186,36 @@ class FUSETrac:
             self.session = "/tmp/ftrac-%s-%u" % (self.user, 
                 string_hash(self.mountpoint))
             if not os.path.isdir(self.session):
-                es("error: session for mount point %s does not exist\n" % \
-                    self.mountpoint)
-                sys.exit(1)
+                # mount ftrac
+                if self.mount() != 0:
+                    es("error: failed to init ftrac\n")
+                    sys.exit(1)
 
         # connect to fusetrac server
-        self.sockpath = "%s/ftrac.sock" % self.session
-        self.servsock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        if self.verbosity >= 1:
-            self.verbose("sessioninit: sock.connect(%s)" % self.sockpath)
-        self.servsock.connect(self.sockpath)
+        try:
+            self.sockpath = "%s/ftrac.sock" % self.session
+            self.servsock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            if self.verbosity >= 1:
+                self.verbose("sessioninit: sock.connect(%s)" % self.sockpath)
+            self.servsock.connect(self.sockpath)
+        except:
+            es("error: failed to connect to %s\n" % self.sockpath)
+            sys.exit(1)
         
         # start data processing thread
         self.dataproc = self.DataProcessor(self)
-        #self.dataproc.start()
+        self.dataproc.start()
 
-        # initial curses screen
         self.wininit()
-
-        # initial report handling
         self.reportinit()
     
     def sessionfinal(self):
+        self.end = (time.localtime(), timer())
         self.servsock.close()
         self.reportfinal() 
         self.winfinal()
+        if self.autoumount:
+            self.umount()
     
     # curses routines
     class WinController(threading.Thread):
@@ -187,15 +226,18 @@ class FUSETrac:
         def run(self):
             while True:
                 c = chr(self.ftrac.win.getch())
-                if c in 'qQ':
-                    self.ftrac.pollcount = 1
-                    self.ftrac.pollrate = 0.0001
-                    break
-                elif c in "sS":
+                if c in "sS":
                     curses.flash()
                     self.ftrac.winrefresh = False
                 elif c in "cC":
                     self.ftrac.winrefresh = True
+                elif c in "pP":
+                    self.ftrac.reporton = False
+                elif c in "rR":
+                    self.ftrac.reporton = True
+                elif c in "fF":
+                    curses.flash()
+                    self.ftrac.reportflush = True
                 elif c == "<":
                     self.ftrac.pollrate *= 10
                 elif c == ">":
@@ -209,7 +251,9 @@ class FUSETrac:
         self.wincontrol = self.WinController(self)
         self.wincontrol.start()
         self.winmenu_y, _ = self.win.getmaxyx()
-        self.winmenu_y -= 3
+        self.winmenu_y -= 4
+        self.winprompt_y = self.winmenu_y - 4
+        GV_IF_CURSES_INIT = True
 
     def winfinal(self):
         curses.nocbreak()
@@ -275,9 +319,17 @@ class FUSETrac:
                     time.strftime("%Y/%m/%d %H:%M:%S", time.localtime(dead))
 
         self.win.addstr(str + "\n")
-
+        
+        if self.reporton:
+            self.win.addstr(self.winprompt_y, 0, 
+                "writing record %s to %s ...\n" % (count, self.report))
+        else:
+            self.win.addstr(self.winprompt_y, 0, 
+                "writing to %s paused.\n" % self.report, attr)
+        
         self.win.addstr(self.winmenu_y, 0, 
-            "s: snapshot, c: continue, <: rate/10, >: rate*10, q: quit.",
+            "p: pause reporting, r: resume reporting, f: flush report data\n"
+            "s: snapshot, c: continue, <: rate/10, >: rate*10, Ctrl+c: quit.\n",
             curses.A_BOLD)
 
         self.win.refresh()
@@ -314,14 +366,14 @@ class FUSETrac:
                 count += 1
                 now = timer()
                 duration = now - start
-                self.dataprocess((op[0], res, count, duration, now))
-                #self.dataready.acquire()
-                #self.data.append((op[0], res, count, duration, now))
-                #self.dataready.notify()
-                #self.dataready.release()
+                #self.dataprocess((op[0], res, count, duration, now))
+                self.dataready.acquire()
+                self.data.append((op[0], res, count, duration, now))
+                self.dataready.notify()
+                self.dataready.release()
                 time.sleep(self.pollrate)
         except KeyboardInterrupt:
-            es("polling terminated by keyboard\n")
+            pass
         sock.send("%s" % FTRAC_POLL_FINISH)
         sock.close()
         return
@@ -367,6 +419,8 @@ class FUSETrac:
                     "Offset,Bytes\n")
 
     def reportfinal(self): 
+        # generate html report
+        self.reportoutputhtml()
         if self.reportsclog:
             for f in self.reportscfd.values(): 
                 f.close()
@@ -401,12 +455,121 @@ class FUSETrac:
         self.reportstatfd["sc_count"].write(",".join(stat_sc_count)+"\n")
         self.reportstatfd["sc_elapsed"].write(",".join(stat_sc_elapsed)+"\n")
         self.reportstatfd["io_summary"].write(",".join(stat_io_summary)+"\n")
+
+        if self.reportflush:
+            for f in self.reportstatfd.values() + self.reportscfd.values():
+                f.flush()
+                #os.fsync(f.fileno())
+            self.reportflush = False
+
+    def reportoutputhtml(self):
+        start = timer()
+        datadir = os.path.basename(self.report)
+        f = open("%s.html" % self.report, "wb")
+        f.write(
+"""\
+<!-- 
+  ParaTrac Report
+  by %s at %s
+
+  Prerequisite:
+    * Adobe Flash Player: http://www.adobe.com/go/getflashplayer
+    * SWFObject 2.0: http://code.google.com/p/swfobject/
+    * amCharts: http://www.amcharts.com
+-->
+""" % \
+        (os.path.abspath(sys.argv[0]),
+         time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0])))
+
+        f.write(
+"""\
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+<title>ParaTrac Report: %s</title>
+
+<script type="text/javascript" src="modules/swfobject.js"></script>
+<script type="text/javascript">
+// Globale Values
+var chartWidth="980"
+var chartHeight="600"
+var swfVersion="8.0.0"
+var swfInstall="modules/expressInstall.swf"
+""" % \
+        time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]))
+        
+        # generate swfobjects here
+        for c in FTRAC_STAT_SC + FTRAC_STAT_IO:
+            f.write(
+"""\
+// Chart: %s
+var vars={path:"modules/", 
+settings_file:"settings/stat_%s.xml",data_file:"%s/stat_%s.csv"}
+var params={}
+var attrs={}
+swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swfVersion, swfInstall, vars, params, attrs);
+""" %   (CHART_TITLES[c], c, datadir, c, c))
+        
+        f.write("</script>\n</head>\n\n<body>\n") 
+
+        f.write(
+"""\
+<!-- Log: Paratrac runtime summary -->
+<p align="left"><font size=5"><b>ParaTrac Tracking Report: %s</b></font><br>
+<i>by ParaTrac Tools (version %s, %s)</i></p>
+<table border="0">
+<tr><td><b>platformn</b></td><td>%s</td></tr>
+<tr><td><b>ftrac started</b></td><td>%s (%s seconds ago)</td></tr>
+<tr><td><b>session began</b></td><td>%s</tr>
+<tr><td><b>session end</b></td><td>%s</tr>
+<tr><td><b>duration</b></td><td>%s</tr>
+<tr><td><b>user</b></td><td>%s (%s)</tr>
+<tr><td><b>command</b></td><td>%s</tr>
+<tr><td><b>mode</b></td><td>%s (path=%s)</td></tr>
+</table>
+""" % \
+        (datadir,
+        PARATRAC_VERSION, PARATRAC_DATE,
+        self.platform, 
+        time.strftime("%a %b %d %Y %H:%M:%S %Z",\
+        time.localtime(self.tracstart)),
+        start - self.tracstart,
+        time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]),
+        time.strftime("%a %b %d %Y %H:%M:%S %Z", self.end[0]),
+        self.end[1] - self.start[1], self.user, self.uid,
+        self.cmd, self.mode, self.pollpath))
+        
+        # generate chart here
+        for c in FTRAC_STAT_SC + FTRAC_STAT_IO:
+            f.write(
+"""\
+<!-- Chart: %s -->
+<p align="left"><font size="3" face="Arial"><b><i>%s</i></b></font></p>
+<div id="stat_%s"></div>
+""" % \
+        (CHART_TITLES[c], CHART_TITLES[c], c))
+        
+        f.flush()
+        os.fsync(f.fileno())
+        f.write(
+"""\
+<p><i>took %s seconds to generate this report.</i></p>
+<p align="right"><font size="1" face="Arial">
+<a href="http://www.adobe.com/go/getflashplayer">
+Get Adobe Flash Player</a></font></p>
+
+</body>
+</html>
+""" % (timer() - start))
+        
+        f.close()
     
     # data processing routines
     def dataprocess(self, data):
         if self.winrefresh:
             self.winoutput(data)
-        self.reportoutputcsv(data)
+        if self.reporton:
+            self.reportoutputcsv(data)
         
     class DataProcessor(threading.Thread):
         def __init__(self, ftrac):
@@ -464,6 +627,18 @@ def parse_argv(argv):
                       dest="reportsclog", default=False,
                       help="report logs of system calls (default: off)")
     
+    parser.add_option("--mount", action="store", type="string",
+                      dest="mount", metavar="PATH", default=None,
+                      help="use ftrac to mount")
+    
+    parser.add_option("--umount", action="store", type="string",
+                      dest="umount", metavar="PATH", default=None,
+                      help="umount ftrac")
+    
+    parser.add_option("--auto-umount", action="store_true",
+                      dest="autoumount", default=False,
+                      help="auto umount when exit")
+
     #parser.add_option("--report-append", action="store_true",
     #                  dest="reportappend", default=False,
     #                  help="append data to previous logs instead of overwrite"
@@ -475,7 +650,13 @@ def parse_argv(argv):
 
     opts, args = parser.parse_args(argv)
     
-    if opts.mode == "poll":
+    opts.mountpoint = None
+    if opts.mount:
+        opts.mountpoint = opts.mount
+    if opts.umount:
+        opts.mountpoint = opts.umount
+
+    if opts.mode == "poll" and opts.mountpoint is None:
         if len(args) == 0:
             es("error: missing mount point\n")
             sys.exit(1)
@@ -487,20 +668,34 @@ def parse_argv(argv):
     if opts.pollduration == -1:
         opts.pollduration = "Inf"
 
+    opts.cmd = " ".join(sys.argv)
+    
     return opts, args
 
 def main():
     opts, args = parse_argv(sys.argv[1:])
 
     fusetrac = FUSETrac(opts)
+    if opts.mount:
+        return fusetrac.mount(opts.mount)
+    if opts.umount:
+        return fusetrac.umount(opts.umount)
+
     try:
         fusetrac.sessioninit()
         fusetrac.poll()
         fusetrac.sessionfinal()
-    except:
-        curses.nocbreak()
-        curses.echo()
-        curses.endwin()
+    except SystemExit:
+        if GV_IF_CURSES_INIT:
+            curses.nocbreak()
+            curses.echo()
+            curses.endwin()
+        return 1
+    except: # do not use "else" here, will produce dummy output
+        if GV_IF_CURSES_INIT:
+            curses.nocbreak()
+            curses.echo()
+            curses.endwin()
         traceback.print_exc()
         return 1
 
