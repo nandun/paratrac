@@ -139,7 +139,12 @@ class FUSETrac:
     def mount(self, mountpoint=None):
         if mountpoint is None:
             mountpoint = self.mountpoint
-        assert os.path.isdir(mountpoint)
+        if not os.path.exists(mountpoint):
+            os.makedirs(mountpoint)
+        elif not os.path.isdir(mountpoint):
+            es("error: %s exists and is not a directory\n" % mountpoint)
+            sys.exit(1)
+            
         if self.dryrun:
             return
         
