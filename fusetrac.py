@@ -428,6 +428,23 @@ class FUSETrac:
         for f in self.reportstatfd.values():
             f.close
 
+        # packing data
+        basename = os.path.basename(self.report)
+        if os.path.exists("%s/%s.tgz" % (self.report, basename)):
+            os.remove("%s/%s.tgz" % (self.report, basename))
+        cwd = os.getcwd()
+        os.chdir(os.path.dirname(self.report))
+        res, out = commands.getstatusoutput("tar -czf %s.tgz %s" % 
+            (basename, basename))
+        if res:
+            es("warning: %s\n" % out)
+        os.chdir(cwd)
+        res, out = commands.getstatusoutput("mv %s.tgz %s" % 
+            (self.report, self.report))
+        if res:
+            es("warning: %s\n" % out)
+
+
     def reportoutputcsv(self, data):
         op, res, count, duration, now = data
         
@@ -468,9 +485,13 @@ class FUSETrac:
             self.reportflush = False
 
     def reportoutputhtml(self):
+        modulesdir = "../modules"
+        settingsdir = "../settings"
+        datadir = "."
+        basename=os.path.basename(self.report)
+
         start = timer()
-        datadir = os.path.basename(self.report)
-        f = open("%s.html" % self.report, "wb")
+        f = open("%s/report.html" % self.report, "wb")
         f.write(
 """\
 <!-- 
@@ -493,27 +514,29 @@ class FUSETrac:
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <title>ParaTrac Report: %s</title>
 
-<script type="text/javascript" src="modules/swfobject.js"></script>
+<script type="text/javascript" src="%s/swfobject.js"></script>
 <script type="text/javascript">
 // Globale Values
 var chartWidth="980"
 var chartHeight="600"
 var swfVersion="8.0.0"
-var swfInstall="modules/expressInstall.swf"
+var swfInstall="%s/expressInstall.swf"
 """ % \
-        time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]))
+        (time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]),\
+        modulesdir, modulesdir))
         
         # generate swfobjects here
         for c in FTRAC_STAT_SC + FTRAC_STAT_IO:
             f.write(
 """\
 // Chart: %s
-var vars={path:"modules/", 
-settings_file:"settings/stat_%s.xml",data_file:"%s/stat_%s.csv"}
+var vars={path:"%s/", 
+settings_file:"%s/stat_%s.xml",data_file:"%s/stat_%s.csv"}
 var params={}
 var attrs={}
-swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swfVersion, swfInstall, vars, params, attrs);
-""" %   (CHART_TITLES[c], c, datadir, c, c))
+swfobject.embedSWF("%s/amline.swf", "stat_%s", chartWidth, chartHeight, swfVersion, swfInstall, vars, params, attrs);
+""" % (CHART_TITLES[c], modulesdir, settingsdir, c, datadir, c, 
+        modulesdir, c))
         
         f.write("</script>\n</head>\n\n<body>\n") 
 
@@ -533,7 +556,7 @@ swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swf
 <tr><td><b>mode</b></td><td>%s (target: %s, rate: %.3f)</td></tr>
 </table>
 """ % \
-        (datadir,
+        (basename,
         PARATRAC_VERSION, PARATRAC_DATE,
         self.platform, 
         time.strftime("%a %b %d %Y %H:%M:%S %Z",\
@@ -558,14 +581,14 @@ swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swf
         os.fsync(f.fileno())
         f.write(
 """\
-<p><i>took %s seconds to generate this report.</i></p>
+<p><i>took %s seconds to generate this report. (<a href=\"%s.tgz\">%s.tgz</a>)</i></p>
 <p align="right"><font size="1" face="Arial">
 <a href="http://www.adobe.com/go/getflashplayer">
 Get Adobe Flash Player</a></font></p>
 
 </body>
 </html>
-""" % (timer() - start))
+""" % (timer()-start, basename, basename))
         
         f.close()
     
