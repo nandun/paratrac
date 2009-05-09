@@ -43,11 +43,12 @@ FTRAC_SYSCALL = ["stat", "access", "readlink", "readdir", "mknod", "mkdir",
 FTRAC_IOCALL = ["read", "write"]
 
 #FTRAC_STAT = ["count", "elapsed", "length", "offset", "bytes"]
-FTRAC_STAT_SC = ["sc_count", "sc_elapsed"]
+FTRAC_STAT_SC = ["sc_count", "sc_elapsed", "sc_esum"]
 FTRAC_STAT_IO = ["io_summary"]
 CHART_TITLES = {}
 CHART_TITLES["sc_count"] = "Total System Call Count"
 CHART_TITLES["sc_elapsed"] = "Elapsed Time per System Call"
+CHART_TITLES["sc_esum"] = "Total System Call Elapsed Time"
 CHART_TITLES["io_summary"] = "I/O Traffic Summary"
 
 FTRAC_PATH_PREFIX = "/tmp"
@@ -272,9 +273,9 @@ class FUSETrac:
             (1/self.pollrate, count, duration)
         self.win.addstr(summary)
 
-        formatstr = "%9s%17s%9s%12s%7s%8s%8s%7s\n"
-        titles = formatstr % ("OPERATION", "ACCESSED", "COUNT", 
-            "ELAPSED", "PID", "LENGTH", "OFFSET", "BYTES")
+        formatstr = "%9s%17s%7s%9s%12s%12s%8s%8s%7s\n"
+        titles = formatstr % ("OPERATION", "ACCESSED", "PID", "COUNT", 
+            "ELAPSED", "ESUM", "LENGTH", "OFFSET", "BYTES")
         attr = curses.A_REVERSE | curses.A_BOLD
         self.win.addstr(titles, attr)
         
@@ -289,20 +290,20 @@ class FUSETrac:
             self.win.refresh()
             return
 
-        formatstr = "%9s%17s%9d%12f%7d\n"
+        formatstr = "%9s%17s%7d%9d%12f%12f\n"
         str = ""
         for c in FTRAC_SYSCALL:
-            atime, cnt, elapsed, pid = res[c]
+            atime, pid, cnt, elapsed, esum = res[c]
             str += formatstr % (c, 
                 time.strftime("%m/%d %H:%M:%S", time.localtime(atime)),
-                cnt, elapsed, pid)
-        formatstr = "%9s%17s%9d%12f%7d%8d%8d%7s\n"
+                pid, cnt, elapsed, esum)
+        formatstr = "%9s%17s%7d%9d%12f%12f%8d%8d%7s\n"
         for c in FTRAC_IOCALL:
-            atime, cnt, elapsed, pid, size, offset, bytes = res[c]
+            atime, pid, cnt, elapsed, esum, size, offset, bytes = res[c]
             bytesize = "%d%s" % smart_datasize(bytes)
             str += formatstr % \
                 (c, time.strftime("%m/%d %H:%M:%S",
-                time.localtime(atime)), cnt, elapsed, pid, size,
+                time.localtime(atime)), pid, cnt, elapsed, esum, size,
                 offset, bytesize)
         if op == FTRAC_POLL_FILE:
             born = res["born"]
@@ -411,11 +412,11 @@ class FUSETrac:
             for c in FTRAC_SYSCALL:
                 f = open("%s/%s.csv" % (self.report, c), flag)
                 self.reportscfd[c] = f
-                f.write("Index,Duration,Count,Elapsed,Pid\n")
+                f.write("Index,Duration,Pid,Count,Elapsed,Esum\n")
             for c in FTRAC_IOCALL:
                 f = open("%s/%s.csv" % (self.report, c), flag)
                 self.reportscfd[c] = f
-                f.write("Index,Duration,Count,Elapsed,Pid,Length,"
+                f.write("Index,Duration,Pid,Count,Elapsed,Esum,Length,"
                     "Offset,Bytes\n")
 
     def reportfinal(self): 
@@ -435,25 +436,29 @@ class FUSETrac:
         
         stat_sc_count = [str(duration)]
         stat_sc_elapsed = [str(duration)]
+        stat_sc_esum = [str(duration)]
         stat_io_summary = [str(duration)]
         for c in FTRAC_SYSCALL:
-            atime, cnt, elapsed, pid = res[c]
+            atime, pid, cnt, elapsed, esum = res[c]
             if self.reportsclog:
-                self.reportscfd[c].write("%d,%f,%d,%f,%d\n" %
-                    (count, duration, cnt, elapsed, pid))
+                self.reportscfd[c].write("%d,%f,%d,%d,%f,%f\n" %
+                    (count, duration, pid, cnt, elapsed, esum))
             stat_sc_count.append(str(cnt))
             stat_sc_elapsed.append("%f" % elapsed)
+            stat_sc_esum.append("%f" % esum)
         for c in FTRAC_IOCALL:
-            atime, cnt, elapsed, pid, size, offset, bytes = res[c]
+            atime, pid, cnt, elapsed, esum, size, offset, bytes = res[c]
             if self.reportsclog:
-                self.reportscfd[c].write("%d,%f,%d,%f,%d,%d,%d,%d\n" %
-                    (count, duration, cnt, elapsed, pid, size, offset, bytes))
+                self.reportscfd[c].write("%d,%f,%d,%d,%f,%f,%d,%d,%d\n" %
+                    (count, duration, pid, cnt, elapsed, esum, size, offset, bytes))
             stat_sc_count.append(str(cnt))
             stat_sc_elapsed.append("%f" % elapsed)
+            stat_sc_esum.append("%f" % esum)
             stat_io_summary.append("%f,%f,%f" % 
                 (float(bytes)/MB, float(size)/KB, float(offset)/KB))
         self.reportstatfd["sc_count"].write(",".join(stat_sc_count)+"\n")
         self.reportstatfd["sc_elapsed"].write(",".join(stat_sc_elapsed)+"\n")
+        self.reportstatfd["sc_esum"].write(",".join(stat_sc_esum)+"\n")
         self.reportstatfd["io_summary"].write(",".join(stat_io_summary)+"\n")
 
         if self.reportflush:
@@ -525,7 +530,7 @@ swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swf
 <tr><td><b>duration</b></td><td>%s</tr>
 <tr><td><b>user</b></td><td>%s (%s)</tr>
 <tr><td><b>command</b></td><td>%s</tr>
-<tr><td><b>mode</b></td><td>%s (path=%s)</td></tr>
+<tr><td><b>mode</b></td><td>%s (target: %s, rate: %.3f)</td></tr>
 </table>
 """ % \
         (datadir,
@@ -537,7 +542,7 @@ swfobject.embedSWF("modules/amline.swf", "stat_%s", chartWidth, chartHeight, swf
         time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]),
         time.strftime("%a %b %d %Y %H:%M:%S %Z", self.end[0]),
         self.end[1] - self.start[1], self.user, self.uid,
-        self.cmd, self.mode, self.pollpath))
+        self.cmd, self.mode, self.pollpath, 1.0/self.pollrate))
         
         # generate chart here
         for c in FTRAC_STAT_SC + FTRAC_STAT_IO:

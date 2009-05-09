@@ -109,8 +109,8 @@ FUSE tool for file system calls tracking
 #define FTRAC_TRACE_FILE
 #define FTRAC_TRACE_PROC
 
-#define POLL_STAT 		'1'
-#define POLL_FILESYSTEM '2'
+#define POLL_STAT		'1'
+#define POLL_FILESYSTEM	'2'
 #define POLL_FILE		'3'
 #define POLL_DIRECTORY 	'4'
 #define POLL_FINISH		'5'
@@ -121,6 +121,7 @@ typedef struct stat_sc {
 	time_t atime;			/* last accessed time */
 	unsigned long cnt;		/* total called count */
 	double elapsed;			/* last call elapsed */
+	double esum;			/* sum of all elapsed */
 	pid_t pid;				/* caller's pid */
 } * stat_sc_t;
 
@@ -129,6 +130,7 @@ typedef struct stat_io {
 	time_t atime;			/* last accessed time */
 	unsigned long cnt;		/* total called count */
 	double elapsed;			/* last call elapsed */
+	double esum;			/* sum of all elapsed */
 	pid_t pid;				/* caller's pid */
 
 	size_t size;			/* bytes size in last call */
@@ -289,8 +291,9 @@ static inline void stat_sc_update(stat_sc_t sc,	time_t timestamp,
 	double elapsed, pid_t pid)
 {
 	sc->atime = timestamp;
-	sc->elapsed = elapsed;
 	sc->pid = pid;
+	sc->elapsed = elapsed;
+	sc->esum += elapsed;
 	sc->cnt ++;
 }
 
@@ -298,9 +301,10 @@ static inline void stat_io_update(stat_io_t io, time_t timestamp,
 	double elapsed, pid_t pid, size_t size, off_t offset)
 {
 	io->atime = timestamp;
-	io->cnt ++;
-	io->elapsed = elapsed;
 	io->pid = pid;
+	io->elapsed = elapsed;
+	io->esum += elapsed;
+	io->cnt ++;
 
 	io->size = size;
 	io->offset = offset;
@@ -310,72 +314,86 @@ static inline void stat_io_update(stat_io_t io, time_t timestamp,
 static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 {
 	char *buf = g_strdup_printf("{"
-		"'stat':(%ld,%lu,%f,%d),"
-	 	"'access':(%ld,%lu,%f,%d),"
-		"'readlink':(%ld,%lu,%f,%d),"
-		"'readdir':(%ld,%lu,%f,%d),"
-		"'mknod':(%ld,%lu,%f,%d),"
-		"'mkdir':(%ld,%lu,%f,%d),"
-		"'symlink':(%ld,%lu,%f,%d),"
-		"'unlink':(%ld,%lu,%f,%d),"
-		"'rmdir':(%ld,%lu,%f,%d),"
-		"'rename':(%ld,%lu,%f,%d),"
-		"'link':(%ld,%lu,%f,%d),"
-		"'chmod':(%ld,%lu,%f,%d),"
-		"'chown':(%ld,%lu,%f,%d),"
-		"'truncate':(%ld,%lu,%f,%d),"
-		"'utime':(%ld,%lu,%f,%d),"
-		"'open':(%ld,%lu,%f,%d),"
-		"'statfs':(%ld,%lu,%f,%d),"
-		"'release':(%ld,%lu,%f,%d),"
-		"'fsync':(%ld,%lu,%f,%d)"
+		"'stat':(%ld,%d,%lu,%f,%f),"
+	 	"'access':(%ld,%d,%lu,%f,%f),"
+		"'readlink':(%ld,%d,%lu,%f,%f),"
+		"'readdir':(%ld,%d,%lu,%f,%f),"
+		"'mknod':(%ld,%d,%lu,%f,%f),"
+		"'mkdir':(%ld,%d,%lu,%f,%f),"
+		"'symlink':(%ld,%d,%lu,%f,%f),"
+		"'unlink':(%ld,%d,%lu,%f,%f),"
+		"'rmdir':(%ld,%d,%lu,%f,%f),"
+		"'rename':(%ld,%d,%lu,%f,%f),"
+		"'link':(%ld,%d,%lu,%f,%f),"
+		"'chmod':(%ld,%d,%lu,%f,%f),"
+		"'chown':(%ld,%d,%lu,%f,%f),"
+		"'truncate':(%ld,%d,%lu,%f,%f),"
+		"'utime':(%ld,%d,%lu,%f,%f),"
+		"'open':(%ld,%d,%lu,%f,%f),"
+		"'statfs':(%ld,%d,%lu,%f,%f),"
+		"'release':(%ld,%d,%lu,%f,%f),"
+		"'fsync':(%ld,%d,%lu,%f,%f)"
 #ifdef HAVE_SETXATTR
-		",'setxattr':(%ld,%lu,%f,%d),"
-		"'getxattr':(%ld,%lu,%f,%d),"
-		"'listxattr':(%ld,%lu,%f,%d),"
-		"'removexattr':(%ld,%lu,%f,%d)"
+		",'setxattr':(%ld,%d,%lu,%f,%f),"
+		"'getxattr':(%ld,%d,%lu,%f,%f),"
+		"'listxattr':(%ld,%d,%lu,%f,%f),"
+		"'removexattr':(%ld,%d,%lu,%f,%f)"
 #endif
-		",'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
-		"'write':(%ld,%lu,%f,%d,%lu,%lu,%lu)"
+		",'read':(%ld,%d,%lu,%f,%f,%lu,%lu,%lu),"
+		"'write':(%ld,%d,%lu,%f,%f,%lu,%lu,%lu)"
 		"}",
-		fs->stat.atime, fs->stat.cnt, fs->stat.elapsed, fs->stat.pid,
-		fs->access.atime, fs->access.cnt, fs->access.elapsed, fs->access.pid,
-		fs->readlink.atime, fs->readlink.cnt, fs->readlink.elapsed, \
-		fs->readlink.pid,
-		fs->readdir.atime,	fs->readdir.cnt, fs->readdir.elapsed, \
-		fs->readdir.pid,
-		fs->mknod.atime, fs->mknod.cnt, fs->mknod.elapsed, fs->mknod.pid,
-		fs->mkdir.atime, fs->mkdir.cnt, fs->mkdir.elapsed, fs->mkdir.pid,
-		fs->symlink.atime,	fs->symlink.cnt, fs->symlink.elapsed, \
-		fs->symlink.pid,
-		fs->unlink.atime, fs->unlink.cnt, fs->unlink.elapsed, fs->unlink.pid,
-		fs->rmdir.atime, fs->rmdir.cnt, fs->rmdir.elapsed, fs->rmdir.pid,
-		fs->rename.atime, fs->rename.cnt, fs->rename.elapsed, fs->rename.pid,
-		fs->link.atime, fs->link.cnt, fs->link.elapsed, fs->link.pid,
-		fs->chmod.atime, fs->chmod.cnt, fs->chmod.elapsed, fs->chmod.pid,
-		fs->chown.atime, fs->chown.cnt, fs->chown.elapsed, fs->chown.pid,
-		fs->truncate.atime, fs->truncate.cnt, fs->truncate.elapsed, \
-		fs->truncate.pid,
-		fs->utime.atime, fs->utime.cnt, fs->utime.elapsed, fs->utime.pid,
-		fs->open.atime, fs->open.cnt, fs->open.elapsed, fs->open.pid,
-		fs->statfs.atime, fs->statfs.cnt, fs->statfs.elapsed, fs->statfs.pid,
-		fs->release.atime, fs->release.cnt, fs->release.elapsed, \
-		fs->release.pid,
-		fs->fsync.atime, fs->fsync.cnt, fs->fsync.elapsed, fs->fsync.pid
+		fs->stat.atime, fs->stat.pid, fs->stat.cnt, fs->stat.elapsed, \
+		fs->stat.esum,
+		fs->access.atime, fs->access.pid, fs->access.cnt, fs->access.elapsed, \
+		fs->access.esum,
+		fs->readlink.atime, fs->readlink.pid, fs->readlink.cnt, \
+		fs->readlink.elapsed, fs->readlink.esum,
+		fs->readdir.atime, fs->readdir.pid, fs->readdir.cnt, fs->readdir.elapsed, \
+		fs->readdir.esum,
+		fs->mknod.atime, fs->mknod.pid, fs->mknod.cnt, fs->mknod.elapsed, \
+		fs->mknod.esum,
+		fs->mkdir.atime, fs->mkdir.pid, fs->mkdir.cnt, fs->mkdir.elapsed, \
+		fs->mkdir.esum,
+		fs->symlink.atime, fs->symlink.pid, fs->symlink.cnt, fs->symlink.elapsed, \
+		fs->symlink.esum,
+		fs->unlink.atime, fs->unlink.pid, fs->unlink.cnt, fs->unlink.elapsed, \
+		fs->unlink.esum,
+		fs->rmdir.atime, fs->rmdir.pid, fs->rmdir.cnt, fs->rmdir.elapsed, \
+		fs->rmdir.esum,
+		fs->rename.atime, fs->rename.pid, fs->rename.cnt, fs->rename.elapsed, \
+		fs->rename.esum,
+		fs->link.atime, fs->link.pid, fs->link.cnt, fs->link.elapsed, \
+		fs->link.esum,
+		fs->chmod.atime, fs->chmod.pid, fs->chmod.cnt, fs->chmod.elapsed, \
+		fs->chmod.esum,
+		fs->chown.atime, fs->chown.pid, fs->chown.cnt, fs->chown.elapsed, \
+		fs->chown.esum,
+		fs->truncate.atime, fs->truncate.pid, fs->truncate.cnt, \
+		fs->truncate.elapsed, fs->truncate.esum,
+		fs->utime.atime, fs->utime.pid, fs->utime.cnt, fs->utime.elapsed, \
+		fs->utime.esum,
+		fs->open.atime, fs->open.pid, fs->open.cnt, fs->open.elapsed, \
+		fs->open.esum,
+		fs->statfs.atime, fs->statfs.pid, fs->statfs.cnt, fs->statfs.elapsed, \
+		fs->statfs.esum,
+		fs->release.atime, fs->release.pid, fs->release.cnt, fs->release.elapsed, \
+		fs->release.esum,
+		fs->fsync.atime, fs->fsync.pid, fs->fsync.cnt, fs->fsync.elapsed, \
+		fs->fsync.esum
 #ifdef HAVE_SETXATTR
-		,fs->setxattr.atime, fs->setxattr.cnt, fs->setxattr.elapsed, \
-		fs->setxattrpid,
-		fs->getxattr.atime, fs->getxattr.cnt, fs->getxattr.elapsed, \
-		fs->setxattr.pid,
-		fs->listxattr.atime, fs->listxattr.cnt, fs->listxattr.elapsed, \
-		fs->listxattr.pid,
-		fs->removexattr.atime, fs->removexattr.cnt, fs->removexattr.elapsed, \
-		fs->removesetxattr.pid
+		,fs->setxattr.atime, fs->setxattr.pid, fs->setxattr.cnt, \
+		fs->setxattr.elapsed, fs->setxattr.esum,
+		fs->getxattr.atime, fs->getxattr.pid, fs->getxattr.cnt, \
+		fs->getxattr.elapsed, fs->setxattr.esum,
+		fs->listxattr.atime, fs->listxattr.pid, fs->listxattr.cnt, \
+		fs->listxattr.elapsed, fs->listxattr.esum,
+		fs->removexattr.atime, fs->removexattr.pid, fs->removexattr.cnt, \
+		fs->removexattr.elapsed, fs->removesetxattr.esum
 #endif
-		,fs->read.atime, fs->read.cnt, fs->read.elapsed, fs->read.pid, \
-		fs->read.size, fs->read.offset, fs->read.bytes,
-		fs->write.atime, fs->write.cnt, fs->write.elapsed, fs->write.pid, \
-		fs->write.size, fs->write.offset, fs->write.bytes
+		,fs->read.atime, fs->read.pid, fs->read.cnt, fs->read.elapsed, \
+		fs->read.esum, fs->read.size, fs->read.offset, fs->read.bytes,
+		fs->write.atime, fs->write.pid, fs->write.cnt, fs->write.elapsed, \
+		fs->write.esum, fs->write.size, fs->write.offset, fs->write.bytes
 		);
 	return buf;
 }
@@ -383,74 +401,88 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 static char * stat_file_to_dictstr(stat_file_t f)
 {
 	char *buf = g_strdup_printf("{"
-		"'stat':(%ld,%lu,%f,%d),"
-	 	"'access':(%ld,%lu,%f,%d),"
-		"'readlink':(%ld,%lu,%f,%d),"
-		"'readdir':(%ld,%lu,%f,%d),"
-		"'mknod':(%ld,%lu,%f,%d),"
-		"'mkdir':(%ld,%lu,%f,%d),"
-		"'symlink':(%ld,%lu,%f,%d),"
-		"'unlink':(%ld,%lu,%f,%d),"
-		"'rmdir':(%ld,%lu,%f,%d),"
-		"'rename':(%ld,%lu,%f,%d),"
-		"'link':(%ld,%lu,%f,%d),"
-		"'chmod':(%ld,%lu,%f,%d),"
-		"'chown':(%ld,%lu,%f,%d),"
-		"'truncate':(%ld,%lu,%f,%d),"
-		"'utime':(%ld,%lu,%f,%d),"
-		"'open':(%ld,%lu,%f,%d),"
-		"'statfs':(%ld,%lu,%f,%d),"
-		"'release':(%ld,%lu,%f,%d),"
-		"'fsync':(%ld,%lu,%f,%d)"
+		"'stat':(%ld,%d,%lu,%f,%f),"
+	 	"'access':(%ld,%d,%lu,%f,%f),"
+		"'readlink':(%ld,%d,%lu,%f,%f),"
+		"'readdir':(%ld,%d,%lu,%f,%f),"
+		"'mknod':(%ld,%d,%lu,%f,%f),"
+		"'mkdir':(%ld,%d,%lu,%f,%f),"
+		"'symlink':(%ld,%d,%lu,%f,%f),"
+		"'unlink':(%ld,%d,%lu,%f,%f),"
+		"'rmdir':(%ld,%d,%lu,%f,%f),"
+		"'rename':(%ld,%d,%lu,%f,%f),"
+		"'link':(%ld,%d,%lu,%f,%f),"
+		"'chmod':(%ld,%d,%lu,%f,%f),"
+		"'chown':(%ld,%d,%lu,%f,%f),"
+		"'truncate':(%ld,%d,%lu,%f,%f),"
+		"'utime':(%ld,%d,%lu,%f,%f),"
+		"'open':(%ld,%d,%lu,%f,%f),"
+		"'statfs':(%ld,%d,%lu,%f,%f),"
+		"'release':(%ld,%d,%lu,%f,%f),"
+		"'fsync':(%ld,%d,%lu,%f,%f)"
 #ifdef HAVE_SETXATTR
-		",'setxattr':(%ld,%lu,%f,%d),"
-		"'getxattr':(%ld,%lu,%f,%d),"
-		"'listxattr':(%ld,%lu,%f,%d),"
-		"'removexattr':(%ld,%lu,%f,%d)"
+		",'setxattr':(%ld,%d,%lu,%f,%f),"
+		"'getxattr':(%ld,%d,%lu,%f,%f),"
+		"'listxattr':(%ld,%d,%lu,%f,%f),"
+		"'removexattr':(%ld,%d,%lu,%f,%f)"
 #endif
-		",'read':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
-		"'write':(%ld,%lu,%f,%d,%lu,%lu,%lu),"
+		",'read':(%ld,%d,%lu,%f,%f,%lu,%lu,%lu),"
+		"'write':(%ld,%d,%lu,%f,%f,%lu,%lu,%lu),"
 		"'born':%ld,"
 		"'dead':%ld"
 		"}",
-		f->stat.atime, f->stat.cnt, f->stat.elapsed, f->stat.pid,
-		f->access.atime, f->access.cnt, f->access.elapsed, f->access.pid,
-		f->readlink.atime, f->readlink.cnt, f->readlink.elapsed, \
-		f->readlink.pid,
-		f->readdir.atime,	f->readdir.cnt, f->readdir.elapsed, \
-		f->readdir.pid,
-		f->mknod.atime, f->mknod.cnt, f->mknod.elapsed, f->mknod.pid,
-		f->mkdir.atime, f->mkdir.cnt, f->mkdir.elapsed, f->mkdir.pid,
-		f->symlink.atime,	f->symlink.cnt, f->symlink.elapsed, \
-		f->symlink.pid,
-		f->unlink.atime, f->unlink.cnt, f->unlink.elapsed, f->unlink.pid,
-		f->rmdir.atime, f->rmdir.cnt, f->rmdir.elapsed, f->rmdir.pid,
-		f->rename.atime, f->rename.cnt, f->rename.elapsed, f->rename.pid,
-		f->link.atime, f->link.cnt, f->link.elapsed, f->link.pid,
-		f->chmod.atime, f->chmod.cnt, f->chmod.elapsed, f->chmod.pid,
-		f->chown.atime, f->chown.cnt, f->chown.elapsed, f->chown.pid,
-		f->truncate.atime, f->truncate.cnt, f->truncate.elapsed, \
-		f->truncate.pid,
-		f->utime.atime, f->utime.cnt, f->utime.elapsed, f->utime.pid,
-		f->open.atime, f->open.cnt, f->open.elapsed, f->open.pid,
-		f->statfs.atime, f->statfs.cnt, f->statfs.elapsed, f->statfs.pid,
-		f->release.atime, f->release.cnt, f->release.elapsed, \
-		f->release.pid,
-		f->fsync.atime, f->fsync.cnt, f->fsync.elapsed, f->fsync.pid
+		f->stat.atime, f->stat.pid, f->stat.cnt, f->stat.elapsed, \
+		f->stat.esum,
+		f->access.atime, f->access.pid, f->access.cnt, f->access.elapsed, \
+		f->access.esum,
+		f->readlink.atime, f->readlink.pid, f->readlink.cnt, \
+		f->readlink.elapsed, f->readlink.esum,
+		f->readdir.atime, f->readdir.pid, f->readdir.cnt, f->readdir.elapsed, \
+		f->readdir.esum,
+		f->mknod.atime, f->mknod.pid, f->mknod.cnt, f->mknod.elapsed, \
+		f->mknod.esum,
+		f->mkdir.atime, f->mkdir.pid, f->mkdir.cnt, f->mkdir.elapsed, \
+		f->mkdir.esum,
+		f->symlink.atime, f->symlink.pid, f->symlink.cnt, f->symlink.elapsed, \
+		f->symlink.esum,
+		f->unlink.atime, f->unlink.pid, f->unlink.cnt, f->unlink.elapsed, \
+		f->unlink.esum,
+		f->rmdir.atime, f->rmdir.pid, f->rmdir.cnt, f->rmdir.elapsed, \
+		f->rmdir.esum,
+		f->rename.atime, f->rename.pid, f->rename.cnt, f->rename.elapsed, \
+		f->rename.esum,
+		f->link.atime, f->link.pid, f->link.cnt, f->link.elapsed, \
+		f->link.esum,
+		f->chmod.atime, f->chmod.pid, f->chmod.cnt, f->chmod.elapsed, \
+		f->chmod.esum,
+		f->chown.atime, f->chown.pid, f->chown.cnt, f->chown.elapsed, \
+		f->chown.esum,
+		f->truncate.atime, f->truncate.pid, f->truncate.cnt, \
+		f->truncate.elapsed, f->truncate.esum,
+		f->utime.atime, f->utime.pid, f->utime.cnt, f->utime.elapsed, \
+		f->utime.esum,
+		f->open.atime, f->open.pid, f->open.cnt, f->open.elapsed, \
+		f->open.esum,
+		f->statfs.atime, f->statfs.pid, f->statfs.cnt, f->statfs.elapsed, \
+		f->statfs.esum,
+		f->release.atime, f->release.pid, f->release.cnt, f->release.elapsed, \
+		f->release.esum,
+		f->fsync.atime, f->fsync.pid, f->fsync.cnt, f->fsync.elapsed, \
+		f->fsync.esum
 #ifdef HAVE_SETXATTR
-		,f->setxattr.atime, f->setxattr.cnt, f->setxattr.elapsed, \
-		f->setxattrpid,
-		f->getxattr.atime, f->getxattr.cnt, f->getxattr.elapsed, \
-		f->setxattr.pid,
-		f->listxattr.atime, f->listxattr.cnt, f->listxattr.elapsed, \
-		f->listxattr.pid,
-		f->removexattr.atime, f->removexattr.cnt, f->removexattr.elapsed, \
-		f->removesetxattr.pid
+		,f->setxattr.atime, f->setxattr.pid, f->setxattr.cnt, \
+		f->setxattr.elapsed, f->setxattr.esum,
+		f->getxattr.atime, f->getxattr.pid, f->getxattr.cnt, \
+		f->getxattr.elapsed, f->setxattr.esum,
+		f->listxattr.atime, f->listxattr.pid, f->listxattr.cnt, \
+		f->listxattr.elapsed, f->listxattr.esum,
+		f->removexattr.atime, f->removexattr.pid, f->removexattr.cnt, \
+		f->removexattr.elapsed, f->removesetxattr.esum
 #endif
-		,f->read.atime, f->read.cnt, f->read.elapsed, f->read.pid, \
-		f->read.size, f->read.offset, f->read.bytes,
-		f->write.atime, f->write.cnt, f->write.elapsed, f->write.pid, \
-		f->write.size, f->write.offset, f->write.bytes,
+		,f->read.atime, f->read.pid, f->read.cnt, f->read.elapsed, \
+		f->read.esum, f->read.size, f->read.offset, f->read.bytes,
+		f->write.atime, f->write.pid, f->write.cnt, f->write.elapsed, \
+		f->write.esum, f->write.size, f->write.offset, f->write.bytes,
 		f->born,
 		f->dead
 		);
@@ -512,6 +544,32 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->removexattr.elapsed	+= f2->removexattr.elapsed;
 #endif
 	
+	f1->stat.esum 			+= f2->stat.esum;
+	f1->access.esum 		+= f2->access.esum;
+	f1->readlink.esum 		+= f2->readlink.esum;
+	f1->readdir.esum 		+= f2->readdir.esum;
+	f1->mknod.esum 			+= f2->mknod.esum;
+	f1->mkdir.esum 			+= f2->mkdir.esum;
+	f1->symlink.esum 		+= f2->symlink.esum;
+	f1->unlink.esum 		+= f2->unlink.esum;
+	f1->rmdir.esum	 		+= f2->rmdir.esum;
+	f1->rename.esum	 		+= f2->rename.esum;
+	f1->link.esum 			+= f2->link.esum;
+	f1->chmod.esum	 		+= f2->chmod.esum;
+	f1->chown.esum 			+= f2->chown.esum;
+	f1->truncate.esum 		+= f2->truncate.esum;
+	f1->utime.esum 			+= f2->utime.esum;
+	f1->open.esum 			+= f2->open.esum;
+	f1->statfs.esum 		+= f2->statfs.esum;
+	f1->release.esum 		+= f2->release.esum;
+	f1->fsync.esum 			+= f2->fsync.esum;
+#ifdef HAVE_SETXATTR
+	f1->setxattr.esum 		+= f2->setxattr.esum;
+	f1->getxattr.esum 		+= f2->getxattr.esum;
+	f1->listxattr.esum 		+= f2->listxattr.esum;
+	f1->removexattr.esum	+= f2->removexattr.esum;
+#endif
+	
 	f1->stat.atime		= f1->stat.atime < f2->stat.atime ? 
 					 	  f2->stat.atime : f1->stat.atime;
 	f1->access.atime 	= f1->access.atime < f2->access.atime ? 
@@ -542,10 +600,6 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 					 	  f2->utime.atime : f1->utime.atime;
 	f1->open.atime		= f1->open.atime < f2->open.atime ? 
 					 	  f2->open.atime : f1->open.atime;
-	f1->read.atime		= f1->read.atime < f2->read.atime ? 
-					 	  f2->read.atime : f1->read.atime;
-	f1->write.atime		= f1->write.atime < f2->write.atime ? 
-					 	  f2->write.atime : f1->write.atime;
 	f1->statfs.atime	= f1->statfs.atime < f2->statfs.atime ? 
 					 	  f2->statfs.atime : f1->statfs.atime;
 	f1->release.atime	= f1->release.atime < f2->release.atime ? 
@@ -568,14 +622,16 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->write.cnt		+= f2->read.cnt;
 	f1->read.elapsed	+= f2->read.elapsed;
 	f1->write.elapsed	+= f2->write.elapsed;
+	f1->read.esum		+= f2->read.esum;
+	f1->write.esum		+= f2->write.esum;
 	f1->read.atime		= f1->read.atime < f2->read.atime ? 
 					 	  f2->read.atime : f1->read.atime;
 	f1->write.atime		= f1->write.atime < f2->write.atime ? 
 					 	  f2->write.atime : f1->write.atime;
 	f1->read.bytes	+= f2->read.bytes;
 	f1->write.bytes	+= f2->write.bytes;
-
 }
+
 /*********** hashtable processing routines **********/
 static int hash_table_init(hash_table_t hashtable)
 {

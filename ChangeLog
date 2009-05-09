@@ -1,4 +1,5 @@
-2009-0x-0x Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+2009-05-09 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* statistics for total system call elapsed time
 	* invoke ftrac by mount/umount command
 	* report to pretty html by amCharts
 	* add system call statistics
