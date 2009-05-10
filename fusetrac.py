@@ -223,7 +223,10 @@ class FUSETrac:
         
         def run(self):
             while True:
-                c = chr(self.ftrac.win.getch())
+                try:
+                    c = chr(self.ftrac.win.getch())
+                except ValueError:
+                    continue
                 if c in "sS":
                     curses.flash()
                     self.ftrac.winrefresh = False
@@ -270,7 +273,7 @@ class FUSETrac:
             (1/self.pollrate, count, duration)
         self.win.addstr(summary)
 
-        formatstr = "%9s%17s%7s%9s%12s%12s%8s%8s%7s\n"
+        formatstr = "%9s%17s%7s%9s%12s%12s%8s%8s%8s\n"
         titles = formatstr % ("OPERATION", "ACCESSED", "PID", "COUNT", 
             "ELAPSED", "ESUM", "LENGTH", "OFFSET", "BYTES")
         attr = curses.A_REVERSE | curses.A_BOLD
@@ -294,14 +297,16 @@ class FUSETrac:
             str += formatstr % (c, 
                 time.strftime("%m/%d %H:%M:%S", time.localtime(atime)),
                 pid, cnt, elapsed, esum)
-        formatstr = "%9s%17s%7d%9d%12f%12f%8d%8d%7s\n"
+        formatstr = "%9s%17s%7d%9d%12f%12f%8s%8s%8s\n"
         for c in FTRAC_IOCALL:
             atime, pid, cnt, elapsed, esum, size, offset, bytes = res[c]
-            bytesize = "%d%s" % smart_datasize(bytes)
+            sizestr = "%d%s" % smart_datasize(size)
+            offsetstr = "%d%s" % smart_datasize(offset)
+            bytestr = "%d%s" % smart_datasize(bytes)
             str += formatstr % \
                 (c, time.strftime("%m/%d %H:%M:%S",
-                time.localtime(atime)), pid, cnt, elapsed, esum, size,
-                offset, bytesize)
+                time.localtime(atime)), pid, cnt, elapsed, esum, sizestr,
+                offsetstr, bytestr)
         if op == FTRAC_POLL_FILE:
             born = res["born"]
             dead = res["dead"]
@@ -630,7 +635,10 @@ Get Adobe Flash Player</a></font></p>
     # data processing routines
     def dataprocess(self, data):
         if self.winrefresh:
-            self.winoutput(data)
+            try:
+                self.winoutput(data)
+            except:
+                pass
         if self.reporton:
             self.reportoutputcsv(data)
         

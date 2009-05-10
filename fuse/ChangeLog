@@ -1,5 +1,6 @@
-2009-05-09 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
-	* bug fix: readdir statistics
+2009-05-10 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* bug fix: wrong directory entry in readdir()
+	* bug fix: readdir statistics accumulataion
 	* glib hash table works even if glib < 2.14
 
 2009-05-09 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>

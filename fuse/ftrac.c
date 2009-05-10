@@ -1081,7 +1081,7 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		stat_sc_update(&file->readdir, stamp, elapsed, pid);
 		pthread_mutex_unlock(&file->lock);
 #endif
-		if (res == 0) {
+		if (dep) {
 			struct stat st;
 			memset(&st, 0, sizeof(st));
 			st.st_ino = de.d_ino;
