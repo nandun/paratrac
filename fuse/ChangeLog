@@ -1,4 +1,8 @@
 2009-05-09 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* bug fix: readdir statistics
+	* glib hash table works even if glib < 2.14
+
+2009-05-09 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* add statistics for total system call elapsed time
 	* add signal to notify caller when initialization is done
 	* add cache timeout option to reduce long-term memory usage

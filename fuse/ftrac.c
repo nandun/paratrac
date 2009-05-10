@@ -63,6 +63,10 @@ FUSE tool for file system calls tracking
 #error FUSE_VERSION < 23
 #endif
 
+#if GLIB_CHECK_VERSION(2, 16, 0)
+#define GLIB_HASHTABLE_HAS_ITER
+#endif
+
 /* 
  * system call number
  * like the definitions in <syscall.h>
@@ -674,13 +678,31 @@ static inline stat_file_t files_lookup(hash_table_t hashtable, const char *path)
     return p;
 }
 
+#ifndef GLIB_HASHTABLE_HAS_ITER
+struct pathandstat {
+	const char *path;
+	stat_file_t stat;
+	int *found;
+};
+
+static inline void cmpandacc (void *key, void *value, void *user_data)
+{
+	struct pathandstat *p = (struct pathandstat *) user_data;
+	if (g_str_has_prefix(key, p->path)) {
+		stat_file_accumulate(p->stat, (stat_file_t) value);
+		*(p->found) += 1;
+	}
+}
+#endif
+
 static stat_file_t files_accumulate(hash_table_t hashtable, const char *path)
 {
-	GHashTableIter iter;
-	gpointer key, value;
 	int found = 0;
-
 	stat_file_t file = (stat_file_t) g_new0(struct stat_file, 1);
+
+#ifdef GLIB_HASHTABLE_HAS_ITER
+	gpointer key, value;
+	GHashTableIter iter;
 	g_hash_table_iter_init(&iter, hashtable->table);
 	while (g_hash_table_iter_next(&iter, &key, &value)) {
 		if (g_str_has_prefix(key, path)) {
@@ -688,6 +710,13 @@ static stat_file_t files_accumulate(hash_table_t hashtable, const char *path)
 			found++;
 		}
 	}
+#else
+	struct pathandstat pair;
+	pair.path = path;
+	pair.stat = file;
+	pair.found = &found;
+	g_hash_table_foreach(hashtable->table, cmpandacc, &pair);
+#endif
 
 	if (!found) {
 		g_free(file);
@@ -701,7 +730,7 @@ struct nowandtimeout {
     time_t timeout;
 };
 
-static inline int if_entry_old(void *key, void *data, void* user_data)
+static inline int if_entry_old(void *key, void *data, void *user_data)
 {
     stat_file_t file = (stat_file_t) data;
     struct nowandtimeout *pair = (struct nowandtimeout *) user_data;
@@ -1049,7 +1078,7 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 #ifdef FTRAC_TRACE_FILE
 		stat_file_t file = files_retrieve(&ftrac.files, path);
 		pthread_mutex_lock(&file->lock);
-		stat_sc_update(&file->stat, stamp, elapsed, pid);
+		stat_sc_update(&file->readdir, stamp, elapsed, pid);
 		pthread_mutex_unlock(&file->lock);
 #endif
 		if (res == 0) {
