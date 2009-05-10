@@ -40,6 +40,12 @@
   <legend>
     <width>100%</width>
   </legend>
+  <context_menu>
+    <menu function_name="showAllSeries('stat_sc_elapsed',21)" title="Show All Series"/>
+    <menu function_name="hideAllSeries('stat_sc_elapsed',21)" title="Hide All Series"/>
+    <menu function_name="showAllValues('stat_sc_elapsed',21)" title="Show All Values"/>
+    <menu function_name="hideAllValues('stat_sc_elapsed',21)" title="Hide All Values"/>
+  </context_menu>
   <graphs>
     <graph gid="1">
       <title>stat</title>

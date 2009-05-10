@@ -47,6 +47,12 @@
   <legend>
     <width>100%</width>
   </legend>
+  <context_menu>
+    <menu function_name="showAllSeries('stat_io_summary',6)" title="Show All Series"/>
+    <menu function_name="hideAllSeries('stat_io_summary',6)" title="Hide All Series"/>
+    <menu function_name="showAllValues('stat_io_summary',6)" title="Show All Values"/>
+    <menu function_name="hideAllValues('stat_io_summary',6)" title="Hide All Values"/>
+  </context_menu>
   <graphs>
     <graph gid="1">
       <title>read bytes</title>

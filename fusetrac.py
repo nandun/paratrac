@@ -76,6 +76,7 @@ class FUSETrac:
         self.mountpoint = None
         self.pollpath = None
         self.pollrate = None
+        self.pollratemulti = None
         self.pollcount = None
         self.pollduration = None
         self.pollfileonly = False
@@ -173,15 +174,6 @@ class FUSETrac:
             es("warning: %s\n" % output)
             sys.exit(1)
     
-    def checkmountpoint(self, mountpoint=None):
-        if mountpoint is None:
-            mountpoint = self.mounpoint
-
-        # check if mountpoint is mounted by others 
-        f = open("/etc/mtab", "rb")
-        f.close
-        # check if mountpoint is empty
-
     # session routines
     def sessioninit(self):
         self.start = (time.localtime(), timer())
@@ -245,9 +237,9 @@ class FUSETrac:
                     curses.flash()
                     self.ftrac.reportflush = True
                 elif c == "<":
-                    self.ftrac.pollrate *= 10
+                    self.ftrac.pollrate *= self.ftrac.pollratemulti
                 elif c == ">":
-                    self.ftrac.pollrate /= 10
+                    self.ftrac.pollrate /= self.ftrac.pollratemulti
 
     def wininit(self):
         self.win = curses.initscr()
@@ -335,7 +327,8 @@ class FUSETrac:
         
         self.win.addstr(self.winmenu_y, 0, 
             "p: pause reporting, r: resume reporting, f: flush report data\n"
-            "s: snapshot, c: continue, <: rate/10, >: rate*10, Ctrl+c: quit.\n",
+            "s: snapshot, c: continue, <: rate/%.3f, >: rate*%.3f, Ctrl+c: quit.\n"
+            % (self.pollratemulti, self.pollratemulti),
             curses.A_BOLD)
 
         self.win.refresh()
@@ -521,7 +514,7 @@ class FUSETrac:
 
 <script type="text/javascript" src="%s/swfobject.js"></script>
 <script type="text/javascript">
-// Globale Values
+// Globale values
 var chartWidth="980"
 var chartHeight="600"
 var swfVersion="8.0.0"
@@ -529,6 +522,43 @@ var swfInstall="%s/expressInstall.swf"
 """ % \
         (time.strftime("%a %b %d %Y %H:%M:%S %Z", self.start[0]),\
         modulesdir, modulesdir))
+
+        f.write(
+"""\
+// Chart control functions
+function showAllSeries (chart_id, num){
+  chart = document.getElementById(chart_id);
+  var i=0;
+  for (i=0;i<num;i++)
+  {
+    chart.showGraph(i)
+  }
+} 
+function hideAllSeries (chart_id, num){
+  chart = document.getElementById(chart_id);
+  var i=0;
+  for (i=0;i<num;i++)
+  {
+    chart.hideGraph(i)
+  }
+} 
+function showAllValues (chart_id, num){
+  chart = document.getElementById(chart_id);
+  var i=0;
+  for (i=0;i<num;i++)
+  {
+    chart.selectGraph(i)
+  }
+} 
+function hideAllValues (chart_id, num){
+  chart = document.getElementById(chart_id);
+  var i=0;
+  for (i=0;i<num;i++)
+  {
+    chart.deselectGraph(i)
+  }
+} 
+""")
         
         # generate swfobjects here
         for c in FTRAC_STAT_SC + FTRAC_STAT_IO:
@@ -639,6 +669,10 @@ def parse_argv(argv):
     parser.add_option("--poll-rate", action="store", type="float",
                       dest="pollrate", metavar="NUM", default=1.0,
                       help="polling rate (default: 1)")
+    
+    parser.add_option("--poll-rate-multi", action="store", type="float",
+                      dest="pollratemulti", metavar="NUM", default=2.0,
+                      help="polling rate mutiplier (default: 2)")
     
     parser.add_option("--poll-count", action="store", type="int",
                       dest="pollcount", metavar="NUM", default=-1,

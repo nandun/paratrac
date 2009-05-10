@@ -1,4 +1,6 @@
 2009-05-09 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* add show/hide all series/values control to charts
+	* add poll rate multiplier
 	* statistics for total system call elapsed time
 	* invoke ftrac by mount/umount command
 	* report to pretty html by amCharts
