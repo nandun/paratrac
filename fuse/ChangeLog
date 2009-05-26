@@ -1,3 +1,8 @@
+2009-05-25 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* change name: ftrac_release -> ftrac_close
+	* add FTRAC_TRACE_NONE to remove tracing code
+	* using fuse_file_info->fh
+
 2009-05-10 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* bug fix: wrong directory entry in readdir()
 	* bug fix: readdir statistics accumulataion

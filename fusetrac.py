@@ -36,10 +36,13 @@ import traceback
 
 from common import *
 
+FTRAC_SOCK_BUFSIZE = 4096
+
 # ftrac constance, keep consistent with fuse/ftrac.c
-FTRAC_SYSCALL = ["stat", "access", "readlink", "readdir", "mknod", "mkdir",
-    "symlink", "unlink", "rmdir", "rename", "link", "chmod", "chown",
-    "truncate", "utime", "open", "statfs", "release", "fsync"]
+FTRAC_SYSCALL = ["stat", "access", "readlink", "opendir", "readdir", 
+    "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", "rename", 
+    "link", "chmod", "chown", "truncate", "utime", "open", "statfs", 
+    "flush", "close", "fsync"]
 FTRAC_IOCALL = ["read", "write"]
 
 #FTRAC_STAT = ["count", "elapsed", "length", "offset", "bytes"]
@@ -347,7 +350,7 @@ class FUSETrac:
 
         # poll stat once for info
         sock.send(FTRAC_POLL_STAT)
-        res = eval(sock.recv(1024))
+        res = eval(sock.recv(FTRAC_SOCK_BUFSIZE))
         self.tracstart = float(res["start"])
 
         if path == "":
@@ -366,7 +369,7 @@ class FUSETrac:
         try:
             while (count < self.pollcount and duration < self.pollduration):
                 sock.send(op)
-                res = eval(sock.recv(1024))
+                res = eval(sock.recv(FTRAC_SOCK_BUFSIZE))
                 count += 1
                 now = timer()
                 duration = now - start

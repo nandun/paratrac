@@ -109,9 +109,14 @@ FUSE tool for file system calls tracking
 #define FTRAC_MODE_POLL     0
 #define FTRAC_MODE_TRACK    1
 
+/* Tracing code control */
 #define FTRAC_TRACE_SYSTEM
 #define FTRAC_TRACE_FILE
-#define FTRAC_TRACE_PROC
+//#define FTRAC_TRACE_NONE
+#ifdef FTRAC_TRACE_NONE
+#undef FTRAC_TRACE_SYSTEM
+#undef FTRAC_TRACE_FILE
+#endif
 
 #define POLL_STAT		'1'
 #define POLL_FILESYSTEM	'2'
@@ -155,7 +160,9 @@ typedef struct stat_filesystem {
 	struct stat_sc stat;
 	struct stat_sc access;
 	struct stat_sc readlink;
+	struct stat_sc opendir;
 	struct stat_sc readdir;
+	struct stat_sc closedir;
 	struct stat_sc mknod;
 	struct stat_sc mkdir;
 	struct stat_sc symlink;
@@ -169,7 +176,8 @@ typedef struct stat_filesystem {
 	struct stat_sc utime;
 	struct stat_sc open;
 	struct stat_sc statfs;
-	struct stat_sc release;
+	struct stat_sc flush;
+	struct stat_sc close;
 	struct stat_sc fsync;
 #ifdef HAVE_SETXATTR
 	struct stat_sc setxattr;
@@ -184,12 +192,13 @@ typedef struct stat_filesystem {
 } * stat_filesystem_t;
 
 /* file statistics */
-#ifdef FTRAC_TRACE_FILE
 typedef struct stat_file {
 	struct stat_sc stat;
 	struct stat_sc access;
 	struct stat_sc readlink;
+	struct stat_sc opendir;
 	struct stat_sc readdir;
+	struct stat_sc closedir;
 	struct stat_sc mknod;
 	struct stat_sc mkdir;
 	struct stat_sc symlink;
@@ -203,7 +212,8 @@ typedef struct stat_file {
 	struct stat_sc utime;
 	struct stat_sc open;
 	struct stat_sc statfs;
-	struct stat_sc release;
+	struct stat_sc flush;
+	struct stat_sc close;
 	struct stat_sc fsync;
 #ifdef HAVE_SETXATTR
 	struct stat_sc setxattr;
@@ -222,13 +232,18 @@ typedef struct stat_file {
 
 	pthread_mutex_t lock;
 } * stat_file_t;
-#endif
 
 /* record table */
 typedef struct hash_table {
 	GHashTable *table;
 	pthread_mutex_t lock;
 } * hash_table_t;
+
+/* used to pass pid, especially in close() and closedir() */
+typedef struct ftrac_file {
+	unsigned long fd;
+	pid_t pid;
+} * ftrac_file_t;
 
 struct ftrac {
 	char *progname;
@@ -251,12 +266,7 @@ struct ftrac {
 	time_t start;
 	time_t end;
 	struct stat_filesystem fs;
-#ifdef FTRAC_TRACE_FILE
 	struct hash_table files;
-#endif
-#ifdef FTRAC_TRACE_PROC
-	struct hash_table procs;
-#endif
 
     /* hash_table managment */
     long cache_timeout;
@@ -321,7 +331,9 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 		"'stat':(%ld,%d,%lu,%f,%f),"
 	 	"'access':(%ld,%d,%lu,%f,%f),"
 		"'readlink':(%ld,%d,%lu,%f,%f),"
+		"'opendir':(%ld,%d,%lu,%f,%f),"
 		"'readdir':(%ld,%d,%lu,%f,%f),"
+		"'closedir':(%ld,%d,%lu,%f,%f),"
 		"'mknod':(%ld,%d,%lu,%f,%f),"
 		"'mkdir':(%ld,%d,%lu,%f,%f),"
 		"'symlink':(%ld,%d,%lu,%f,%f),"
@@ -335,7 +347,8 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 		"'utime':(%ld,%d,%lu,%f,%f),"
 		"'open':(%ld,%d,%lu,%f,%f),"
 		"'statfs':(%ld,%d,%lu,%f,%f),"
-		"'release':(%ld,%d,%lu,%f,%f),"
+		"'flush':(%ld,%d,%lu,%f,%f),"
+		"'close':(%ld,%d,%lu,%f,%f),"
 		"'fsync':(%ld,%d,%lu,%f,%f)"
 #ifdef HAVE_SETXATTR
 		",'setxattr':(%ld,%d,%lu,%f,%f),"
@@ -352,8 +365,12 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 		fs->access.esum,
 		fs->readlink.atime, fs->readlink.pid, fs->readlink.cnt, \
 		fs->readlink.elapsed, fs->readlink.esum,
+		fs->opendir.atime, fs->opendir.pid, fs->opendir.cnt, fs->opendir.elapsed, \
+		fs->opendir.esum,
 		fs->readdir.atime, fs->readdir.pid, fs->readdir.cnt, fs->readdir.elapsed, \
 		fs->readdir.esum,
+		fs->closedir.atime, fs->closedir.pid, fs->closedir.cnt, \
+		fs->closedir.elapsed, fs->closedir.esum,
 		fs->mknod.atime, fs->mknod.pid, fs->mknod.cnt, fs->mknod.elapsed, \
 		fs->mknod.esum,
 		fs->mkdir.atime, fs->mkdir.pid, fs->mkdir.cnt, fs->mkdir.elapsed, \
@@ -380,8 +397,10 @@ static char * stat_filesystem_to_dictstr(stat_filesystem_t fs)
 		fs->open.esum,
 		fs->statfs.atime, fs->statfs.pid, fs->statfs.cnt, fs->statfs.elapsed, \
 		fs->statfs.esum,
-		fs->release.atime, fs->release.pid, fs->release.cnt, fs->release.elapsed, \
-		fs->release.esum,
+		fs->flush.atime, fs->flush.pid, fs->flush.cnt, fs->flush.elapsed, \
+		fs->flush.esum,
+		fs->close.atime, fs->close.pid, fs->close.cnt, fs->close.elapsed, \
+		fs->close.esum,
 		fs->fsync.atime, fs->fsync.pid, fs->fsync.cnt, fs->fsync.elapsed, \
 		fs->fsync.esum
 #ifdef HAVE_SETXATTR
@@ -408,7 +427,9 @@ static char * stat_file_to_dictstr(stat_file_t f)
 		"'stat':(%ld,%d,%lu,%f,%f),"
 	 	"'access':(%ld,%d,%lu,%f,%f),"
 		"'readlink':(%ld,%d,%lu,%f,%f),"
+		"'opendir':(%ld,%d,%lu,%f,%f),"
 		"'readdir':(%ld,%d,%lu,%f,%f),"
+		"'closedir':(%ld,%d,%lu,%f,%f),"
 		"'mknod':(%ld,%d,%lu,%f,%f),"
 		"'mkdir':(%ld,%d,%lu,%f,%f),"
 		"'symlink':(%ld,%d,%lu,%f,%f),"
@@ -422,7 +443,8 @@ static char * stat_file_to_dictstr(stat_file_t f)
 		"'utime':(%ld,%d,%lu,%f,%f),"
 		"'open':(%ld,%d,%lu,%f,%f),"
 		"'statfs':(%ld,%d,%lu,%f,%f),"
-		"'release':(%ld,%d,%lu,%f,%f),"
+		"'flush':(%ld,%d,%lu,%f,%f),"
+		"'close':(%ld,%d,%lu,%f,%f),"
 		"'fsync':(%ld,%d,%lu,%f,%f)"
 #ifdef HAVE_SETXATTR
 		",'setxattr':(%ld,%d,%lu,%f,%f),"
@@ -441,8 +463,12 @@ static char * stat_file_to_dictstr(stat_file_t f)
 		f->access.esum,
 		f->readlink.atime, f->readlink.pid, f->readlink.cnt, \
 		f->readlink.elapsed, f->readlink.esum,
+		f->opendir.atime, f->opendir.pid, f->opendir.cnt, f->opendir.elapsed, \
+		f->opendir.esum,
 		f->readdir.atime, f->readdir.pid, f->readdir.cnt, f->readdir.elapsed, \
 		f->readdir.esum,
+		f->closedir.atime, f->closedir.pid, f->closedir.cnt, f->closedir.elapsed, \
+		f->closedir.esum,
 		f->mknod.atime, f->mknod.pid, f->mknod.cnt, f->mknod.elapsed, \
 		f->mknod.esum,
 		f->mkdir.atime, f->mkdir.pid, f->mkdir.cnt, f->mkdir.elapsed, \
@@ -469,8 +495,10 @@ static char * stat_file_to_dictstr(stat_file_t f)
 		f->open.esum,
 		f->statfs.atime, f->statfs.pid, f->statfs.cnt, f->statfs.elapsed, \
 		f->statfs.esum,
-		f->release.atime, f->release.pid, f->release.cnt, f->release.elapsed, \
-		f->release.esum,
+		f->flush.atime, f->flush.pid, f->flush.cnt, f->flush.elapsed, \
+		f->flush.esum,
+		f->close.atime, f->close.pid, f->close.cnt, f->close.elapsed, \
+		f->close.esum,
 		f->fsync.atime, f->fsync.pid, f->fsync.cnt, f->fsync.elapsed, \
 		f->fsync.esum
 #ifdef HAVE_SETXATTR
@@ -499,7 +527,9 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->stat.cnt		+= f2->stat.cnt;
 	f1->access.cnt 		+= f2->access.cnt;
 	f1->readlink.cnt 	+= f2->readlink.cnt;
+	f1->opendir.cnt 	+= f2->opendir.cnt;
 	f1->readdir.cnt 	+= f2->readdir.cnt;
+	f1->closedir.cnt 	+= f2->closedir.cnt;
 	f1->mknod.cnt 		+= f2->mknod.cnt;
 	f1->mkdir.cnt 		+= f2->mkdir.cnt;
 	f1->symlink.cnt 	+= f2->symlink.cnt;
@@ -513,7 +543,8 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->utime.cnt 		+= f2->utime.cnt;
 	f1->open.cnt 		+= f2->open.cnt;
 	f1->statfs.cnt 		+= f2->statfs.cnt;
-	f1->release.cnt 	+= f2->release.cnt;
+	f1->flush.cnt 		+= f2->flush.cnt;
+	f1->close.cnt 		+= f2->close.cnt;
 	f1->fsync.cnt 		+= f2->fsync.cnt;
 #ifdef HAVE_SETXATTR
 	f1->setxattr.cnt 	+= f2->setxattr.cnt;
@@ -525,7 +556,9 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->stat.elapsed 		+= f2->stat.elapsed;
 	f1->access.elapsed 		+= f2->access.elapsed;
 	f1->readlink.elapsed 	+= f2->readlink.elapsed;
+	f1->opendir.elapsed 	+= f2->opendir.elapsed;
 	f1->readdir.elapsed 	+= f2->readdir.elapsed;
+	f1->closedir.elapsed 	+= f2->closedir.elapsed;
 	f1->mknod.elapsed 		+= f2->mknod.elapsed;
 	f1->mkdir.elapsed 		+= f2->mkdir.elapsed;
 	f1->symlink.elapsed 	+= f2->symlink.elapsed;
@@ -539,7 +572,8 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->utime.elapsed 		+= f2->utime.elapsed;
 	f1->open.elapsed 		+= f2->open.elapsed;
 	f1->statfs.elapsed 		+= f2->statfs.elapsed;
-	f1->release.elapsed 	+= f2->release.elapsed;
+	f1->flush.elapsed 		+= f2->flush.elapsed;
+	f1->close.elapsed 		+= f2->close.elapsed;
 	f1->fsync.elapsed 		+= f2->fsync.elapsed;
 #ifdef HAVE_SETXATTR
 	f1->setxattr.elapsed 	+= f2->setxattr.elapsed;
@@ -551,7 +585,9 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->stat.esum 			+= f2->stat.esum;
 	f1->access.esum 		+= f2->access.esum;
 	f1->readlink.esum 		+= f2->readlink.esum;
+	f1->opendir.esum 		+= f2->opendir.esum;
 	f1->readdir.esum 		+= f2->readdir.esum;
+	f1->closedir.esum 		+= f2->closedir.esum;
 	f1->mknod.esum 			+= f2->mknod.esum;
 	f1->mkdir.esum 			+= f2->mkdir.esum;
 	f1->symlink.esum 		+= f2->symlink.esum;
@@ -565,7 +601,8 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 	f1->utime.esum 			+= f2->utime.esum;
 	f1->open.esum 			+= f2->open.esum;
 	f1->statfs.esum 		+= f2->statfs.esum;
-	f1->release.esum 		+= f2->release.esum;
+	f1->flush.esum 			+= f2->flush.esum;
+	f1->close.esum 			+= f2->close.esum;
 	f1->fsync.esum 			+= f2->fsync.esum;
 #ifdef HAVE_SETXATTR
 	f1->setxattr.esum 		+= f2->setxattr.esum;
@@ -606,8 +643,10 @@ static void stat_file_accumulate(stat_file_t f1, stat_file_t f2)
 					 	  f2->open.atime : f1->open.atime;
 	f1->statfs.atime	= f1->statfs.atime < f2->statfs.atime ? 
 					 	  f2->statfs.atime : f1->statfs.atime;
-	f1->release.atime	= f1->release.atime < f2->release.atime ? 
-					 	  f2->release.atime : f1->release.atime;
+	f1->flush.atime		= f1->flush.atime < f2->flush.atime ? 
+					 	  f2->flush.atime : f1->flush.atime;
+	f1->close.atime		= f1->close.atime < f2->close.atime ? 
+					 	  f2->close.atime : f1->close.atime;
 	f1->fsync.atime		= f1->fsync.atime < f2->fsync.atime ? 
 					 	  f2->fsync.atime : f1->fsync.atime;
 #ifdef HAVE_SETXATTR
@@ -669,6 +708,7 @@ static stat_file_t files_retrieve(hash_table_t hashtable, const char *path)
     p->atime = time(NULL);
 	return p;
 }
+#endif
 
 static inline stat_file_t files_lookup(hash_table_t hashtable, const char *path)
 {
@@ -749,7 +789,6 @@ static void files_cleanup(hash_table_t hashtable, time_t timeout)
         (void *) &pair);
 	pthread_mutex_unlock(&hashtable->lock);
 }
-#endif
 
 /*********** polling server routines **********/
 typedef struct polling_process_data {
@@ -837,14 +876,11 @@ static void * polling_process(void *data)
 			pthread_detach(thread_id);
 		}
 
-#ifdef FTRAC_TRACE_FILE
         /* reuse polling server thread to do cleanup */
         if (time(NULL) - last_cleanup > ftrac.cache_timeout) {
             files_cleanup(&ftrac.files, ftrac.cache_timeout);
             last_cleanup = time(NULL);
         }
-#endif
-        
 	} while(1);
 
 	return NULL;
@@ -914,7 +950,7 @@ static int polling_directory(int sockfd, char *buf)
 {
 	int res, err = 0;
 	char *sendbuf;
-	
+
 	stat_file_t file = files_accumulate(&ftrac.files, buf+2);
 	if (file) {
 		sendbuf = stat_file_to_dictstr(file);
@@ -951,18 +987,21 @@ static int polling_unknown(int sockfd, char *buf)
 static int ftrac_getattr(const char *path, struct stat *stbuf)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = lstat(path, stbuf);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.stat, stamp, elapsed, pid);
@@ -971,8 +1010,50 @@ static int ftrac_getattr(const char *path, struct stat *stbuf)
 	if (res == -1)
 		return -errno;
 	
-	/* only record when file exists */
 #ifdef FTRAC_TRACE_FILE
+	/* only record when file exists */
+	stat_file_t file = files_retrieve(&ftrac.files, path);
+	pthread_mutex_lock(&file->lock);
+	stat_sc_update(&file->stat, stamp, elapsed, pid);
+	pthread_mutex_unlock(&file->lock);
+#endif
+
+	return 0;
+}
+
+static int ftrac_fgetattr(const char *path, struct stat *stbuf,
+	struct fuse_file_info *fi)
+{
+	int fd, res;
+
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;
+#else
+	struct timeval start, end;
+	double elapsed;
+	pid_t pid = fuse_get_context()->pid;
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
+	fd = ff->fd;
+	time_t stamp = time(NULL);
+	gettimeofday(&start, NULL);
+#endif
+	
+	res = fstat(fd, stbuf);
+	
+#ifndef FTRAC_TRACE_NONE
+	gettimeofday(&end, NULL);
+	elapsed = get_elapsed(start, end);
+#endif
+
+#ifdef FTRAC_TRACE_SYSTEM
+	stat_sc_update(&ftrac.fs.stat, stamp, elapsed, pid);
+#endif
+	
+	if (res == -1)
+		return -errno;
+	
+#ifdef FTRAC_TRACE_FILE
+	/* only record when file exists */
 	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
 	stat_sc_update(&file->stat, stamp, elapsed, pid);
@@ -985,18 +1066,21 @@ static int ftrac_getattr(const char *path, struct stat *stbuf)
 static int ftrac_access(const char *path, int mask)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = access(path, mask);
-	
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.access, stamp, elapsed, pid);
@@ -1017,18 +1101,21 @@ static int ftrac_access(const char *path, int mask)
 static int ftrac_readlink(const char *path, char *buf, size_t size)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = readlink(path, buf, size - 1);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.readlink, stamp, elapsed, pid);
@@ -1047,30 +1134,81 @@ static int ftrac_readlink(const char *path, char *buf, size_t size)
 	buf[res] = '\0';
 	return 0;
 }
+static int ftrac_opendir(const char *path, struct fuse_file_info *fi)
+{
+#ifndef FTRAC_TRACE_NONE
+	struct timeval start, end;
+	double elapsed;
+	struct ftrac_file *ff;
+	pid_t pid = fuse_get_context()->pid;
+	time_t stamp = time(NULL);
+	gettimeofday(&start, NULL);
+#endif
+
+	DIR *dp = opendir(path);
+
+#ifndef FTRAC_TRACE_NONE
+	gettimeofday(&end, NULL);
+	elapsed = get_elapsed(start, end);
+#endif
+
+#ifdef FTRAC_TRACE_SYSTEM
+	stat_sc_update(&ftrac.fs.opendir, stamp, elapsed, pid);
+#endif
+
+	if (dp == NULL)
+		return -errno;
+
+#ifdef FTRAC_TRACE_FILE
+    stat_file_t file = files_retrieve(&ftrac.files, path);
+	pthread_mutex_lock(&file->lock);
+	stat_sc_update(&file->opendir, stamp, elapsed, pid);
+	pthread_mutex_unlock(&file->lock);
+#endif
+
+#ifdef FTRAC_TRACE_NONE
+	fi->fh = (unsigned long) dp;
+#else
+	ff = g_new0(struct ftrac_file, 1);
+	ff->fd = (unsigned long) dp;
+	ff->pid = pid;
+	fi->fh = (unsigned long) ff;
+#endif
+
+	return 0;
+}
 
 static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	off_t offset, struct fuse_file_info *fi)
 {
+	int res;
 	DIR *dp;
 	struct dirent de, *dep;
-	struct timeval start, end;
-	double elapsed;
-	time_t stamp;
-	int res;
-	pid_t pid = fuse_get_context()->pid;
 	(void) offset;
 	(void) fi;
 
-	dp = opendir(path);
-	if (dp == NULL)
-		return -errno;
+#ifdef FTRAC_TRACE_NONE
+	dp = (DIR *) (uintptr_t) fi->fh;
+#else
+	struct timeval start, end;
+	double elapsed;
+	time_t stamp;
+	struct ftrac_file *ff = (struct ftrac_file *) (uintptr_t) fi->fh;
+	pid_t pid = fuse_get_context()->pid;
+	
+	dp = (DIR *) ff->fd;
+#endif
 	
 	do {
+#ifndef FTRAC_TRACE_NONE
 		stamp = time(NULL);
 		gettimeofday(&start, NULL);
+#endif
 		res = readdir_r(dp, &de, &dep);
+#ifndef FTRAC_TRACE_NONE
 		gettimeofday(&end, NULL);
 		elapsed = get_elapsed(start, end);
+#endif
 #ifdef FTRAC_TRACE_SYSTEM
 		stat_sc_update(&ftrac.fs.readdir, stamp, elapsed, pid);
 #endif
@@ -1091,20 +1229,59 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		}
 	} while (dep);
 
+	return 0;
+}
+
+static int ftrac_closedir(const char *path, struct fuse_file_info *fi)
+{
+	DIR *dp;
+
+#ifdef FTRAC_TRACE_NONE
+	dp = (DIR *) (uintptr_t) fi->fh;
+	(void) path;
+#else
+	struct timeval start, end;
+	double elapsed;
+	struct ftrac_file *ff = (struct ftrac_file *) (uintptr_t) fi->fh;
+	dp = (DIR *) ff->fd;
+	pid_t pid = ff->pid;
+	g_free(ff);
+	time_t stamp = time(NULL);
+	gettimeofday(&start, NULL);
+#endif
+
 	closedir(dp);
+
+#ifndef FTRAC_TRACE_NONE
+	gettimeofday(&end, NULL);
+	elapsed = get_elapsed(start, end);
+#endif
+
+#ifdef FTRAC_TRACE_SYSTEM
+	stat_sc_update(&ftrac.fs.closedir, stamp, elapsed, pid);
+#endif
+
+#ifdef FTRAC_TRACE_FILE
+    stat_file_t file = files_retrieve(&ftrac.files, path);
+	pthread_mutex_lock(&file->lock);
+	stat_sc_update(&file->closedir, stamp, elapsed, pid);
+	pthread_mutex_unlock(&file->lock);
+#endif
+
 	return 0;
 }
 
 static int ftrac_mknod(const char *path, mode_t mode, dev_t rdev)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 
 #ifdef linux
 	res = mknod(path, mode, rdev);
@@ -1121,8 +1298,10 @@ static int ftrac_mknod(const char *path, mode_t mode, dev_t rdev)
 		res = mknod(path, mode, rdev);
 #endif
 
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.mknod, stamp, elapsed, pid);
@@ -1145,18 +1324,21 @@ static int ftrac_mknod(const char *path, mode_t mode, dev_t rdev)
 static int ftrac_mkdir(const char *path, mode_t mode)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = mkdir(path, mode);
-	
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.mkdir, stamp, elapsed, pid);
@@ -1179,18 +1361,21 @@ static int ftrac_mkdir(const char *path, mode_t mode)
 static int ftrac_unlink(const char *path)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = unlink(path);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.unlink, stamp, elapsed, pid);
@@ -1213,18 +1398,21 @@ static int ftrac_unlink(const char *path)
 static int ftrac_rmdir(const char *path)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = rmdir(path);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.rmdir, stamp, elapsed, pid);
@@ -1247,18 +1435,21 @@ static int ftrac_rmdir(const char *path)
 static int ftrac_symlink(const char *from, const char *to)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = symlink(from, to);
-	
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.symlink, stamp, elapsed, pid);
@@ -1282,18 +1473,21 @@ static int ftrac_symlink(const char *from, const char *to)
 static int ftrac_rename(const char *from, const char *to)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = rename(from, to);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.rename, stamp, elapsed, pid);
@@ -1323,18 +1517,21 @@ static int ftrac_rename(const char *from, const char *to)
 static int ftrac_link(const char *from, const char *to)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = link(from, to);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.link, stamp, elapsed, pid);
@@ -1357,18 +1554,21 @@ static int ftrac_link(const char *from, const char *to)
 static int ftrac_chmod(const char *path, mode_t mode)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = chmod(path, mode);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.chmod, stamp, elapsed, pid);
@@ -1389,18 +1589,21 @@ static int ftrac_chmod(const char *path, mode_t mode)
 static int ftrac_chown(const char *path, uid_t uid, gid_t gid)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = lchown(path, uid, gid);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.chown, stamp, elapsed, pid);
@@ -1421,18 +1624,62 @@ static int ftrac_chown(const char *path, uid_t uid, gid_t gid)
 static int ftrac_truncate(const char *path, off_t size)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = truncate(path, size);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
+
+#ifdef FTRAC_TRACE_SYSTEM
+	stat_sc_update(&ftrac.fs.truncate, stamp, elapsed, pid);
+#endif
+
+#ifdef FTRAC_TRACE_FILE
+	stat_file_t file = files_retrieve(&ftrac.files, path);
+	pthread_mutex_lock(&file->lock);
+	stat_sc_update(&file->truncate, stamp, elapsed, pid);
+	pthread_mutex_unlock(&file->lock);
+#endif
+	
+	if (res == -1)
+		return -errno;
+	return 0;
+}
+
+static int ftrac_ftruncate(const char *path, off_t size,
+	struct fuse_file_info *fi)
+{
+	int fd, res;
+
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;
+#else
+	(void) path;
+	struct timeval start, end;
+	double elapsed;
+	pid_t pid = fuse_get_context()->pid;
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
+	fd = ff->fd;
+	time_t stamp = time(NULL);
+	gettimeofday(&start, NULL);
+#endif
+    
+	res = ftruncate(fd, size);
+	
+#ifndef FTRAC_TRACE_NONE
+	gettimeofday(&end, NULL);
+	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.truncate, stamp, elapsed, pid);
@@ -1455,13 +1702,14 @@ static int ftrac_utimens(const char *path, const struct timespec ts[2])
 {
 	struct timeval tv[2];
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	tv[0].tv_sec = ts[0].tv_sec;
 	tv[0].tv_usec = ts[0].tv_nsec / 1000;
@@ -1469,8 +1717,10 @@ static int ftrac_utimens(const char *path, const struct timespec ts[2])
 	tv[1].tv_usec = ts[1].tv_nsec / 1000;
 	res = utimes(path, tv);
 
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.utime, stamp, elapsed, pid);
@@ -1491,18 +1741,20 @@ static int ftrac_utimens(const char *path, const struct timespec ts[2])
 static int ftrac_utime(const char *path, struct utimbuf *buf)
 {
 	int res;
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = utime(path, buf);
-	
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.utime, stamp, elapsed, pid);
@@ -1523,19 +1775,22 @@ static int ftrac_utime(const char *path, struct utimbuf *buf)
 
 static int ftrac_open(const char *path, struct fuse_file_info *fi)
 {
-	int res;
+	int fd;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
-	res = open(path, fi->flags);
+	fd = open(path, fi->flags);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.open, stamp, elapsed, pid);
@@ -1548,35 +1803,43 @@ static int ftrac_open(const char *path, struct fuse_file_info *fi)
 	pthread_mutex_unlock(&file->lock);
 #endif
 	
-	if (res == -1)
+	if (fd == -1)
 		return -errno;
 
-	close(res);
+#ifdef FTRAC_TRACE_NONE
+	fi->fh = fd;
+#else
+	struct ftrac_file *ff = g_new0(struct ftrac_file, 1);
+	ff->fd = fd;
+	ff->pid = pid;
+	fi->fh = (unsigned long) ff;
+#endif
 	return 0;
 }
 
 static int ftrac_read(const char *path, char *buf, size_t size, off_t offset,
-		    struct fuse_file_info *fi)
+	struct fuse_file_info *fi)
 {
 	int fd, res;
+
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;
+#else
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	(void) fi;
-	
-	/* TODO: remove open() and close() here */
-	fd = open(path, O_RDONLY);
-	if (fd == -1)
-		return -errno;
-	
-	stamp = time(NULL);
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
+	fd = ff->fd;
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = pread(fd, buf, size, offset);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_io_update(&ftrac.fs.read, stamp, elapsed, pid, size, offset);
@@ -1592,7 +1855,6 @@ static int ftrac_read(const char *path, char *buf, size_t size, off_t offset,
 	if (res == -1)
 		res = -errno;
 
-	close(fd);
 	return res;
 }
 
@@ -1600,23 +1862,25 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 		     off_t offset, struct fuse_file_info *fi)
 {
 	int fd, res;
+
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;	
+#else
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	(void) fi;
-
-	fd = open(path, O_WRONLY);
-	if (fd == -1)
-		return -errno;
-
-	stamp = time(NULL);
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
+	fd = ff->fd;
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = pwrite(fd, buf, size, offset);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_io_update(&ftrac.fs.write, stamp, elapsed, pid, size, offset);
@@ -1631,25 +1895,27 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 	if (res == -1)
 		res = -errno;
 
-	close(fd);
 	return res;
 }
 
 static int ftrac_statfs(const char *path, struct statvfs *stbuf)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = statvfs(path, stbuf);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 	
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.statfs, stamp, elapsed, pid);
@@ -1667,34 +1933,85 @@ static int ftrac_statfs(const char *path, struct statvfs *stbuf)
 	return 0;
 }
 
-static int ftrac_release(const char *path, struct fuse_file_info *fi)
+static int ftrac_flush(const char *path, struct fuse_file_info *fi)
 {
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
+	int fd, res;
+	
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;
+#else
+	(void) path;
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
+	ftrac_file_t ff = (ftrac_file_t) fi->fh;
 	pid_t pid = fuse_get_context()->pid;
-	(void) path;
-	(void) fi;
-	
-	stamp = time(NULL);
+	fd = ff->fd;
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
-   	
-	/* release */
+#endif
 	
+	/* This is called from every close on an open file, so call the
+	   close on the underlying filesystem.	But since flush may be
+	   called multiple times for an open file, this must not really
+	   close the file.  This is important if used on a network
+	   filesystem like NFS which flush the data/metadata on close() */
+	res = close(dup(fd));
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
-	stat_sc_update(&ftrac.fs.release, stamp, elapsed, pid);
+	stat_sc_update(&ftrac.fs.flush, stamp, elapsed, pid);
 #endif
 
 #ifdef FTRAC_TRACE_FILE
 	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
-	stat_sc_update(&file->release, stamp, elapsed, pid);
+	stat_sc_update(&file->flush, stamp, elapsed, pid);
+	pthread_mutex_unlock(&file->lock);
+#endif
+
+	if (res == -1)
+		return -errno;
+
+	return 0;
+}
+
+static int ftrac_close(const char *path, struct fuse_file_info *fi)
+{
+	int fd;
+
+#ifdef FTRAC_TRACE_NONE
+	fd = fi->fh;
+#else
+	(void) path;
+	struct timeval start, end;
+	double elapsed;
+	ftrac_file_t ff = (ftrac_file_t) fi->fh;
+	fd = ff->fd;
+	pid_t pid = ff->pid;
+	g_free(ff);
+	time_t stamp = time(NULL);
+	gettimeofday(&start, NULL);
+#endif
+	
+	close(fd);
+	
+#ifndef FTRAC_TRACE_NONE
+	gettimeofday(&end, NULL);
+	elapsed = get_elapsed(start, end);
+#endif
+
+#ifdef FTRAC_TRACE_SYSTEM
+	stat_sc_update(&ftrac.fs.close, stamp, elapsed, pid);
+#endif
+
+#ifdef FTRAC_TRACE_FILE
+	stat_file_t file = files_retrieve(&ftrac.files, path);
+	pthread_mutex_lock(&file->lock);
+	stat_sc_update(&file->close, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
 #endif
 
@@ -1704,24 +2021,31 @@ static int ftrac_release(const char *path, struct fuse_file_info *fi)
 static int ftrac_fsync(const char *path, int isdatasync,
 		     struct fuse_file_info *fi)
 {
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
+	int res;
+	(void) path;
 
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	(void) path;
-	(void) isdatasync;
-	(void) fi;
-
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
-    
-	/* fsync */
+#endif
 
+#ifndef HAVE_FDATASYNC
+	(void) isdatasync;
+#else
+	if (isdatasync)
+		res = fdatasync(fi->fh);
+	else
+#endif
+		res = fsync(fi->fh);
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
+    
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.fsync, stamp, elapsed, pid);
@@ -1733,6 +2057,9 @@ static int ftrac_fsync(const char *path, int isdatasync,
 	stat_sc_update(&file->fsync, stamp, elapsed, pid);
 	pthread_mutex_unlock(&file->lock);
 #endif
+	
+	if (res == -1)
+		return -errno;
 
 	return 0;
 }
@@ -1743,18 +2070,21 @@ static int ftrac_setxattr(const char *path, const char *name,
 	const char *value, size_t size, int flags)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-	
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = lsetxattr(path, name, value, size, flags);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.setxattr, stamp, elapsed, pid);
@@ -1776,18 +2106,21 @@ static int ftrac_getxattr(const char *path, const char *name, char *value,
 			size_t size)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-    
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = lgetxattr(path, name, value, size);
 	
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.getxattr, stamp, elapsed, pid);
@@ -1808,20 +2141,22 @@ static int ftrac_getxattr(const char *path, const char *name, char *value,
 static int ftrac_listxattr(const char *path, char *list, size_t size)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-    
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
     
 	res = llistxattr(path, list, size);
 	
+#ifdef FTRAC_TRACE_NONE
+	struct timeval start, end;
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
-	elapsed = (double) (end.tv_sec - start.tv_sec) +
-			  (((double) (end.tv_usec - start.tv_usec)) * 0.000001);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.listxattr, stamp, elapsed, pid);
@@ -1842,20 +2177,21 @@ static int ftrac_listxattr(const char *path, char *list, size_t size)
 static int ftrac_removexattr(const char *path, const char *name)
 {
 	int res;
+
+#ifndef FTRAC_TRACE_NONE
 	struct timeval start, end;
 	double elapsed;
-	time_t stamp;
 	pid_t pid = fuse_get_context()->pid;
-    
-	stamp = time(NULL);
+	time_t stamp = time(NULL);
 	gettimeofday(&start, NULL);
+#endif
 	
 	res = lremovexattr(path, name);
-	
+
+#ifndef FTRAC_TRACE_NONE
 	gettimeofday(&end, NULL);
 	elapsed = get_elapsed(start, end);
-	elapsed = (double) (end.tv_sec - start.tv_sec) +
-			  (((double) (end.tv_usec - start.tv_usec)) * 0.000001);
+#endif
 
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_sc_update(&ftrac.fs.removexattr, stamp, elapsed, pid);
@@ -1888,12 +2224,7 @@ static void * ftrac_init(void)
 
 	/* initial frac structure */
 	memset(&ft->fs, 0, sizeof(struct stat_filesystem));
-#ifdef FTRAC_TRACE_FILE
 	hash_table_init(&ft->files);
-#endif
-#ifdef FTRAC_TRACE_PROC
-	hash_table_init(&ft->procs);
-#endif
 	
 	/* startup polling server */
 	ft->sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -1927,30 +2258,6 @@ static void * ftrac_init(void)
 	ft->serv_started = 1;
     ft->start = time(NULL);
 	
-	/* create debug session */
-	/*
-	if (ftrac.foreground) {
-		char *tmp = g_strdup_printf("%s/debug", ftrac.sessiondir);
-		err = mkdir(tmp, S_IRUSR | S_IWUSR | S_IXUSR);
-		if (err == -1 && errno != EEXIST) {
-			fprintf(stderr, "failed to create directory %s, %s\n", 
-					tmp, strerror(errno));
-			exit(1);
-		}
-		g_free(tmp);
-		
-		tmp = g_strdup_printf("%s/debug/ftrac", ftrac.sessiondir); 
-		unlink(tmp);
-		symlink(ftrac.sockpath, tmp);
-		g_free(tmp);
-
-		tmp = g_strdup_printf("%s/debug/mountpoint", ftrac.sessiondir); 
-		unlink(tmp);
-		symlink(ftrac.mountpoint, tmp);
-		g_free(tmp);
-	}
-	*/
-	
     /* 
      * notify the caller we are done for initialization
      * this is necessary when ftrac is exectued by another process
@@ -1967,12 +2274,7 @@ static void ftrac_destroy(void *data_)
 {
 	(void) data_;
  
-#ifdef FTRAC_TRACE_FILE
     hash_table_destroy(&ftrac.files);
-#endif
-#ifdef FTRAC_TRACE_PROC
-    hash_table_destroy(&ftrac.procs);
-#endif
 	pthread_cancel(ftrac.serv_thread);
 	close(ftrac.sockfd);
 	remove(ftrac.sockpath);
@@ -1988,9 +2290,12 @@ static struct fuse_operations ftrac_oper = {
 	.init			= ftrac_init,
 	.destroy		= ftrac_destroy,
 	.getattr		= ftrac_getattr,
+	.fgetattr		= ftrac_fgetattr,
 	.access			= ftrac_access,
 	.readlink		= ftrac_readlink,
+	.opendir		= ftrac_opendir,
 	.readdir		= ftrac_readdir,
+	.releasedir		= ftrac_closedir,
 	.mknod			= ftrac_mknod,
 	.mkdir			= ftrac_mkdir,
 	.symlink		= ftrac_symlink,
@@ -2001,6 +2306,7 @@ static struct fuse_operations ftrac_oper = {
 	.chmod			= ftrac_chmod,
 	.chown			= ftrac_chown,
 	.truncate		= ftrac_truncate,
+	.ftruncate		= ftrac_ftruncate,
 #if FUSE_VERSION >= 26
 	.utimens		= ftrac_utimens,
 #else
@@ -2010,7 +2316,8 @@ static struct fuse_operations ftrac_oper = {
 	.read			= ftrac_read,
 	.write			= ftrac_write,
 	.statfs			= ftrac_statfs,
-	.release		= ftrac_release,
+	.flush			= ftrac_flush,
+	.release		= ftrac_close,
 	.fsync			= ftrac_fsync,
 #ifdef HAVE_SETXATTR
 	.setxattr		= ftrac_setxattr,
