@@ -73,31 +73,36 @@ FUSE tool for file system calls tracking
  * use paratrac its own definition
  */
 
-#define SYSC_LSTAT          84
-#define SYSC_ACCESS         33
-#define SYSC_READLINK       85
-#define SYSC_READDIR        89
-#define SYSC_MKNOD          14
-#define SYSC_MKDIR          39
-#define SYSC_UNLINK         10
-#define SYSC_RMDIR          40
-#define SYSC_SYMLINK        83
-#define SYSC_RENAME         38
-#define SYSC_LINK           9
-#define SYSC_CHMOD          15
-#define SYSC_CHOWN          16      /* lchown() */
-#define SYSC_TRUNCATE       92
-#define SYSC_UTIME          30
-#define SYSC_OPEN           5
-#define SYSC_READ           3
-#define SYSC_WRITE          4
-#define SYSC_STATFS         99
-#define SYSC_FSYNC          118
+#define SYSC_FS_LSTAT          84
+#define SYSC_FS_FSTAT		   28
+#define SYSC_FS_ACCESS         33
+#define SYSC_FS_READLINK       85
+#define	SYSC_FS_OPENDIR		   205
+#define SYSC_FS_READDIR        89
+#define SYSC_FS_CLOSEDIR	   206
+#define SYSC_FS_MKNOD          14
+#define SYSC_FS_MKDIR          39
+#define SYSC_FS_UNLINK         10
+#define SYSC_FS_RMDIR          40
+#define SYSC_FS_SYMLINK        83
+#define SYSC_FS_RENAME         38
+#define SYSC_FS_LINK           9
+#define SYSC_FS_CHMOD          15
+#define SYSC_FS_CHOWN          16      /* lchown() */
+#define SYSC_FS_TRUNCATE       92
+#define SYSC_FS_UTIME          30
+#define SYSC_FS_OPEN           5
+#define SYSC_FS_CLOSE		   6
+#define SYSC_FS_READ           3
+#define SYSC_FS_WRITE          4
+#define SYSC_FS_STATFS         99
+#define SYSC_FS_FLUSH		   203
+#define SYSC_FS_FSYNC          118
 #ifdef HAVE_SETXATTR        
-#define SYSC_SETXATTR       201
-#define SYSC_GETXATTR       202
-#define SYSC_LISTXATTR      203
-#define SYSC_REMOVEXATTR    204
+#define SYSC_FS_SETXATTR       201
+#define SYSC_FS_GETXATTR       202
+#define SYSC_FS_LISTXATTR      203
+#define SYSC_FS_REMOVEXATTR    204
 #endif
 
 #define	PATH_PREFIX	"/tmp"
@@ -111,7 +116,7 @@ FUSE tool for file system calls tracking
 
 /* Tracing code control */
 #define FTRAC_TRACE_SYSTEM
-#define FTRAC_TRACE_FILE
+//#define FTRAC_TRACE_FILE
 //#define FTRAC_TRACE_NONE
 #ifdef FTRAC_TRACE_NONE
 #undef FTRAC_TRACE_SYSTEM
@@ -1885,6 +1890,7 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 #ifdef FTRAC_TRACE_SYSTEM
 	stat_io_update(&ftrac.fs.write, stamp, elapsed, pid, size, offset);
 #endif
+
 #ifdef FTRAC_TRACE_FILE
 	stat_file_t file = files_retrieve(&ftrac.files, path);
 	pthread_mutex_lock(&file->lock);
