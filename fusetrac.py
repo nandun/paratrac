@@ -181,16 +181,13 @@ class FUSETrac:
     def sessioninit(self):
         self.start = (time.localtime(), timer())
 
-        if self.mode == "track":
-            return
-        elif self.mode == "poll":
-            self.session = "/tmp/ftrac-%s-%u" % (self.user, 
-                string_hash(self.mountpoint))
-            if not os.path.isdir(self.session):
-                # mount ftrac
-                if self.mount() != 0:
-                    es("error: failed to init ftrac\n")
-                    sys.exit(1)
+        self.session = "/tmp/ftrac-%s-%u" % (self.user, 
+            string_hash(self.mountpoint))
+        if not os.path.isdir(self.session):
+            # mount ftrac
+            if self.mount() != 0:
+                es("error: failed to init ftrac\n")
+                sys.exit(1)
 
         # connect to fusetrac server
         try:
@@ -353,15 +350,7 @@ class FUSETrac:
         res = eval(sock.recv(FTRAC_SOCK_BUFSIZE))
         self.tracstart = float(res["start"])
 
-        if path == "":
-            op = "%s" % FTRAC_POLL_STAT
-        elif path == "/" and not self.pollfileonly:
-            op = "%s" % FTRAC_POLL_FILESYSTEM
-        elif os.path.isdir(path) and not self.pollfileonly:
-            op = "%s:%s" % (FTRAC_POLL_DIRECTORY, path)
-        else:
-            op = "%s:%s" % (FTRAC_POLL_FILE, path)
-    
+        op = "%s" % FTRAC_POLL_FILESYSTEM
         count = 0
         duration = 0.0
         start = timer()
