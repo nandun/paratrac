@@ -1,7 +1,8 @@
-2009-06-07 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+2009-06-08 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* use struct timespec for more precisely timing
 	* ftrac logging system call: trace.log
 	* ftrac logging process and file information: proc.map and file.map
+	* logging runtime environments
 
 2009-05-25 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* change name: ftrac_release -> ftrac_close

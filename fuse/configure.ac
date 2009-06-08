@@ -37,8 +37,10 @@ AC_FUNC_CLOSEDIR_VOID
 AC_FUNC_LSTAT
 AC_FUNC_LSTAT_FOLLOWS_SLASHED_SYMLINK
 AC_FUNC_UTIME_NULL
+AC_FUNC_SETVBUF_REVERSED
 AC_CHECK_FUNCS([fdatasync ftruncate lchown memset memmove mkdir \ 
-mkfifo rmdir strchr strdup socket strerror utime gettimeofday])
+mkfifo rmdir strchr strdup socket strerror utime clock_gettime \
+realpath uname])
 
 # Checking FUSE
 export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH
