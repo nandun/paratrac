@@ -274,9 +274,9 @@ static char * get_proc_cmdline(pid_t pid)
 	
 	size = fread(line, sizeof(char), MAX_LINE - 1, file);
 
-	/* remove nulls in string */
+	/* replace nulls and newlines in string */
 	for (i=0; i < size; i++) {
-		if (line[i] == '\0')
+		if (line[i] == '\0' || line[i] == '\n')
 			line[i] = ' ';
 	}
 	if (i < MAX_LINE)
@@ -412,8 +412,8 @@ static inline void sc_log_common(stat_sc_t stat, int sysc,
 		logging
 		csv format: stamp,pid,sysc,fid,res,elapsed
 	*/
-	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f\n", stamp, pid, sysc, fid, res,
-		elapsed);
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n", stamp, pid, sysc, fid, 
+		res, elapsed);
 	proctab_insert(&ftrac.proctab, pid);
 
 	/* internal statistics */
@@ -449,7 +449,7 @@ static inline void sc_log_link(stat_sc_t stat, int sysc,
 	unsigned long fid_from = filetab_lookup(&ftrac.filetab, from);
 	unsigned long fid_to = filetab_lookup(&ftrac.filetab, to);
 	
-	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu\n", stamp, pid, sysc, 
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu,0\n", stamp, pid, sysc, 
 		fid_from, res, elapsed, fid_to);
 	proctab_insert(&ftrac.proctab, pid);
 
@@ -602,6 +602,7 @@ static void log_init(struct ftrac *ft)
 	pwd = getpwuid(getuid());
 		
 	fprintf(ft->env,
+		"prog:ftrac\n"
 		"start:%.9f\n"
 		"platform:%s %s %s\n"
 		"hostname:%s\n"
