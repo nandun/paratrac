@@ -34,7 +34,7 @@ import textwrap
 import threading
 import traceback
 
-from common import *
+from paratrac.common.util import *
 
 FTRAC_SOCK_BUFSIZE = 4096
 
