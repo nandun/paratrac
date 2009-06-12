@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
 # Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
@@ -24,42 +22,79 @@
 #
 
 import os
-import csv
+import sys
 import numpy
 import matplotlib.pyplot
 
-from common import *
+from paratrac.common.consts import *
+from track import FUSETRAC_SYSCALL
 from database import *
 
-class Plot:
-    """Basic plot class"""
-    def __init__(self, database):
-        self.plt = matplotlib.pyplot
-        self.db = database
+__all__ = ["FUSETracPlot"]
 
-    def __del__(self):
-        self.db.close()
+class FUSETracPlot():
+    def __init__(self, dbfile, opts=None):
+        self.datadir = os.path.dirname(dbfile)
+        self.db = FUSETracDB(dbfile)
+        self.pyplot = matplotlib.pyplot
+        self.plotlist = []
+        self.usewin = False
+        self.prompt = True
+
+        if opts is not None:
+            for k, v in opts.__dict__.items():
+                if self.__dict__.has_key(k):
+                    self.__dict__[k] = v
+
+        self.ws = sys.stdout.write
+        self.es = sys.stderr.write
 
     def show(self):
-        self.plt.show()
+        if self.usewin:
+            self.pyplot.show()
 
-class FUSETracPlot(Plot):
-    """Plot FUSE tracking figures"""
     def plot(self):
-        #self.plot_sysc_elapsed(SYSC.keys())
         #self.plot_sysc_elapsed_sum(SYSC.keys(), None)
-        self.plot_sysc_count(SYSC.keys(), None)
+        #self.plot_syscall_count()
+        #self.plot_syscall_elapsed()
+        if "proctree" in self.plotlist:
+            self.plot_proctree()
+    
+    # Plot routines for each type of figure
+    def plot_syscall_count(self):
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("System Calls Counts")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Operation Count")
 
-    def plot_sysc_elapsed(self, sysc=[], log=10):
-        # plot summary
-        self.plt.title("System Calls Elapsed Time (seconds)")
-        self.plt.xlabel("Time Stamp (seconds)")
-        self.plt.ylabel("Elapsed Time (seconds)")
-
-        if log is not None:
-            self.plt.semilogy(basex=log)
+        sysc_num = [SYSCALL[s] for s in FUSETRAC_SYSCALL]
+        first_stamp = self.db.get_first_stamp()
+        lines = []
+        for sc in sysc_num:
+            stamp = []
+            count = []
+            sum = 0
+            for s in self.db.select_sysc(sc, "stamp"):
+                sum += 1
+                stamp.append(s[0] - first_stamp)
+                count.append(sum)
+            lines.append(ax.plot(stamp, count, linewidth=0.3))
         
-        sysc_num = [SYSC[s] for s in sysc]
+        # plot legend
+        #ax.legend(lines, FUSETRAC_SYSCALL, loc="upper right", numpoints=1)
+        #legends = fig.get_legend()
+        #legends.draw_frame(False)
+        #fig.setp(ltext, fontsize="small")
+
+    def plot_syscall_elapsed(self):
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("System Calls Elapsed Time (seconds)")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Elapsed Time (seconds)")
+
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in FUSETRAC_SYSCALL]
         first_stamp = self.db.get_first_stamp()
         lines = []
         for sc in sysc_num:
@@ -68,23 +103,23 @@ class FUSETracPlot(Plot):
             for s,e in self.db.select_sysc(sc, "stamp,elapsed"):
                 stamp.append(s - first_stamp)
                 elapsed.append(e)
-            lines.append(self.plt.plot(stamp, elapsed, linewidth=0.3))
+            lines.append(ax.plot(stamp, elapsed, linewidth=0.3))
         
         # plot legend
-        self.plt.legend(lines, sysc, loc="upper right", numpoints=1)
-        legends = self.plt.gca().get_legend()
-        ltext = legends.get_texts()
-        legends.draw_frame(False)
-        self.plt.setp(ltext, fontsize="small")
+        #self.pyplot.legend(lines, sysc, loc="upper right", numpoints=1)
+        #legends = self.pyplot.gca().get_legend()
+        #ltext = legends.get_texts()
+        #legends.draw_frame(False)
+        #self.pyplot.setp(ltext, fontsize="small")
 
     def plot_sysc_elapsed_sum(self, sysc=[], log=10):
         # plot summary
-        self.plt.title("Summation of System Calls Elapsed Time (seconds)")
-        self.plt.xlabel("Time Stamp (seconds)")
-        self.plt.ylabel("Summation of Elapsed Time (seconds)")
+        self.pyplot.title("Summation of System Calls Elapsed Time (seconds)")
+        self.pyplot.xlabel("Time Stamp (seconds)")
+        self.pyplot.ylabel("Summation of Elapsed Time (seconds)")
 
         if log is not None:
-            self.plt.semilogy(basex=log)
+            self.pyplot.semilogy(basex=log)
         
         sysc_num = [SYSC[s] for s in sysc]
         first_stamp = self.db.get_first_stamp()
@@ -97,51 +132,51 @@ class FUSETracPlot(Plot):
                 sum += e
                 stamp.append(s - first_stamp)
                 esum.append(sum)
-            lines.append(self.plt.plot(stamp, esum, linewidth=0.3))
+            lines.append(self.pyplot.plot(stamp, esum, linewidth=0.3))
         
         # plot legend
-        self.plt.legend(lines, sysc, loc="upper right", numpoints=1)
-        legends = self.plt.gca().get_legend()
+        self.pyplot.legend(lines, sysc, loc="upper right", numpoints=1)
+        legends = self.pyplot.gca().get_legend()
         ltext = legends.get_texts()
         legends.draw_frame(False)
-        self.plt.setp(ltext, fontsize="small")
-        return
+        self.pyplot.setp(ltext, fontsize="small")
 
-    def plot_sysc_count(self, sysc=[], log=None):
-        # plot summary
-        self.plt.title("System Calls Counts")
-        self.plt.xlabel("Time Stamp (seconds)")
-        self.plt.ylabel("Operation Count")
+    # workflow plot using Graphviz
+    def plot_proctree(self):
+        gvFile = open("%s/proctree.gv" % self.datadir, "wb")
+        sifFile = open("%s/proctree.sif" % self.datadir, "wb")
+        attrFile = open("%s/proctree.attr" % self.datadir, "wb")
+        
+        gvFile.write("digraph proctree {\n")
+        for pid, ppid, cmdline in self.db.procmap_fetchall():
+            gvFile.write("\t%d->%d;\n" % (ppid, pid))
+            sifFile.write("%d call %d\n" % (ppid, pid))
+            attrFile.write("%d = %s\n" % (pid, cmdline))
+        gvFile.write("}\n")
+        
+        gvFile.close()
+        sifFile.close()
+        attrFile.close()
+        
+        # prompt user
+        if self.prompt:
+            self.ws("Process tree graph has been created.\n"
+                    "Please use Graphviz to visualize:\n"
+                    "  %s/proctree.gv\n"
+                    "Please use Cytoscape to visualize:\n"
+                    "  %s/proctree.sif\n"
+                    "  %s/proctree.attr\n"
+                    % (self.datadir, self.datadir, self.datadir))
 
-        if log is not None:
-            self.plt.semilogy(basex=log)
+    def plot_workflow(self):
+        gvFile = open("%s/workflow.gv" % self.datadir, "wb")
+        sifFile = open("%s/workflow.sif" % self.datadir, "wb")
+        attrFile = open("%s/workflow.attr" % self.datadir, "wb")
         
-        sysc_num = [SYSC[s] for s in sysc]
-        first_stamp = self.db.get_first_stamp()
-        lines = []
-        for sc in sysc_num:
-            stamp = []
-            count = []
-            sum = 0
-            for s in self.db.select_sysc(sc, "stamp"):
-                sum += 1
-                stamp.append(s[0] - first_stamp)
-                count.append(sum)
-            lines.append(self.plt.plot(stamp, count, linewidth=0.3))
+        gvFile.write("digraph proctree {\n")
+            
+        gvFile.write("}\n")
         
-        # plot legend
-        self.plt.legend(lines, sysc, loc="upper right", numpoints=1)
-        legends = self.plt.gca().get_legend()
-        ltext = legends.get_texts()
-        legends.draw_frame(False)
-        self.plt.setp(ltext, fontsize="small")
-        return
-        
-def main():
-    fplot = FUSETracPlot(FUSETracDB(sys.argv[1]))
-    fplot.plot()
-    fplot.show()
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
+        gvFile.close()
+        sifFile.close()
+        attFile.close()

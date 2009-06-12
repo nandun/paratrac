@@ -141,7 +141,8 @@ typedef struct stat_io {
 
 /* filesystem global statistics */
 typedef struct stat_fs {
-	struct stat_sc stat;
+	struct stat_sc lstat;
+	struct stat_sc fstat;
 	struct stat_sc access;
 	struct stat_sc readlink;
 	struct stat_sc opendir;
@@ -461,7 +462,8 @@ static inline void sc_log_link(stat_sc_t stat, int sysc,
 static char * stat_fs_to_dictstr(stat_fs_t fs)
 {
 	char *buf = g_strdup_printf("{"
-		"'stat':(%.9f,%lu,%.9f),"
+		"'lstat':(%.9f,%lu,%.9f),"
+		"'fstat':(%.9f,%lu,%.9f),"
 	 	"'access':(%.9f,%lu,%.9f),"
 		"'readlink':(%.9f,%lu,%.9f),"
 		"'opendir':(%.9f,%lu,%.9f),"
@@ -492,7 +494,8 @@ static char * stat_fs_to_dictstr(stat_fs_t fs)
 		",'read':(%.9f,%lu,%.9f,%lu),"
 		"'write':(%.9f,%lu,%.9f,%lu)"
 		"}",
-		fs->stat.stamp, fs->stat.cnt, fs->stat.esum,
+		fs->lstat.stamp, fs->lstat.cnt, fs->lstat.esum,
+		fs->fstat.stamp, fs->fstat.cnt, fs->fstat.esum,
 		fs->access.stamp, fs->access.cnt, fs->access.esum,
 		fs->readlink.stamp, fs->readlink.cnt, fs->readlink.esum,
 		fs->opendir.stamp, fs->opendir.cnt, fs->opendir.esum,
@@ -811,7 +814,7 @@ static int ftrac_getattr(const char *path, struct stat *stbuf)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sc_log_common(&ftrac.fs.stat, SYSC_FS_LSTAT, &start, &end,
+	sc_log_common(&ftrac.fs.lstat, SYSC_FS_LSTAT, &start, &end,
 		fuse_get_context()->pid, res, path);
 #endif
 	
@@ -840,7 +843,7 @@ static int ftrac_fgetattr(const char *path, struct stat *stbuf,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sc_log_common(&ftrac.fs.stat, SYSC_FS_FSTAT, &start, &end,
+	sc_log_common(&ftrac.fs.fstat, SYSC_FS_FSTAT, &start, &end,
 		fuse_get_context()->pid, res, path);
 #endif
 

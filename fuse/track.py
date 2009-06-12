@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
 # Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
@@ -21,37 +19,24 @@
 import commands
 import curses
 import curses.textpad
-import errno
-import optparse
 import os
 import pwd
 import signal
 import socket
-import subprocess
 import sys
-import tempfile
-import textwrap
 import threading
 import traceback
 
-from paratrac.common.util import *
+from paratrac.common.consts import *
+from paratrac.common.utils import *
+from paratrac.common.track import *
 
-FTRAC_SOCK_BUFSIZE = 4096
+__all__ = ["FUSETracker"]
 
-# ftrac constance, keep consistent with fuse/ftrac.c
-FTRAC_SYSCALL = ["stat", "access", "readlink", "opendir", "readdir", 
-    "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", "rename", 
-    "link", "chmod", "chown", "truncate", "utime", "open", "statfs", 
-    "flush", "close", "fsync"]
-FTRAC_IOCALL = ["read", "write"]
-
-FTRAC_STAT_SC = ["sc_count", "sc_elapsed", "sc_esum"]
-FTRAC_STAT_IO = ["io_summary"]
-CHART_TITLES = {}
-CHART_TITLES["sc_count"] = "Total System Call Count"
-CHART_TITLES["sc_elapsed"] = "Elapsed Time per System Call"
-CHART_TITLES["sc_esum"] = "Total System Call Elapsed Time"
-CHART_TITLES["io_summary"] = "I/O Traffic Summary"
+FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir", 
+    "readdir", "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", 
+    "rename", "link", "chmod", "chown", "truncate", "utime", "open", 
+    "statfs", "flush", "close", "fsync", "read", "write"]
 
 FTRAC_PATH_PREFIX = "/tmp"
 FTRAC_SIGNAL_INIT = signal.SIGUSR1
@@ -60,29 +45,15 @@ FTRAC_CTRL_FINISH = 1
 FTRAC_CTRL_POLL_STAT = 2
 FTRAC_CTRL_FLUSH = 3
 
-GV_IF_CURSES_INIT = False
-
-class FUSETrac:
+class FUSETracker(Tracker):
     def __init__(self, opts=None, **kw):
-        ## readonly variables ##
-        self.uid = os.getuid()
-        self.pid = os.getpid()
-        self.user = pwd.getpwuid(self.uid)[0]
-        self.hostname = socket.gethostname()
-        self.platform = " ".join(os.uname())
-        self.cmd = None
+        Tracker.__init__(self)
         
-        self.mode = None
         self.mountpoint = None
         self.pollpath = None
         self.pollrate = None
         self.pollratemulti = None
-        self.pollcount = None
-        self.pollduration = None
-        self.pollfileonly = False
         self.autoumount = False
-        self.verbosity = 0
-        self.dryrun = False
 
         if opts is not None:
             for k, v in opts.__dict__.items():
@@ -92,24 +63,10 @@ class FUSETrac:
             if self.__dict__.has_key(k):
                 self.__dict__[k] = v
 
-        # check ftrac executable
-        self.ftrac = None
-        res, path = commands.getstatusoutput("which ftrac")
-        if res == 0:
-            self.ftrac = path
-        elif os.path.exists("./fuse/ftrac"):
-            self.ftrac = os.path.abspath("./fuse/ftrac")
-        else:
-            es("error: ftrac executable not found.\n")
-            sys.exit(1)
-        
-        self.mountpoint = os.path.abspath(self.mountpoint)
-        
         self.session = None
         self.sockpath = None
         self.servsock = None
         self.tracstart = None
-        self.vcnt = 0
         self.start = None
         self.end = None
 
@@ -122,30 +79,62 @@ class FUSETrac:
         self.win = None
         self.wincontrol = None
         self.winrefresh = True
+        self.winstart = False
 
-        # report variables
-        self.reportflush = False
-    
-    def verbose(self, msg):
-        ws("[fusetrac:%5d] %s\n" % (self.vcnt, msg))
-    
     # mount/umount primitivies
+    def check_ftracexe(self):
+        # check ftrac executable
+        res, path = commands.getstatusoutput("which ftrac")
+        if res == 0:
+            return path
+        elif os.path.exists("./fuse/ftrac/ftrac"):
+            return os.path.abspath("./fuse/ftrac/ftrac")
+        else:
+            self.es("error: ftrac executable not found.\n")
+            sys.exit(1)
+    
+    def check_dirusage(self, dir):
+        res, output = commands.getstatusoutput("fuser -m %s 2>&1" % dir)
+        if res == 0:
+            procs = output.split()
+            procs.pop(0)   # remove directory
+            for p in procs:
+                # fuser indicator:
+                # c: current directory
+                # e: running executable
+                # f: open file
+                # r: the root directory
+                # m: shared library
+                pid = p.strip('cefrm')
+                try:
+                    fp = open("/proc/%s/cmdline" % pid, "r")
+                except IOError:
+                    continue;
+                cmdline = fp.readline()
+                fp.close()
+                cmdline = cmdline.replace('\0', ' ')
+                self.es("%s being used by process %s: %s\n" % (dir, pid, cmdline))
+            self.es("please make sure umount is safe, or use "
+               "\"--force\" to umount\n")
+        
     def mount(self, mountpoint=None):
+        ftracexe = self.check_ftracexe()
+
         if mountpoint is None:
             mountpoint = self.mountpoint
         if not os.path.exists(mountpoint):
             os.makedirs(mountpoint)
         elif not os.path.isdir(mountpoint):
-            es("error: %s exists and is not a directory\n" % mountpoint)
+            self.es("error: %s exists and is not a directory\n" % mountpoint)
             sys.exit(1)
             
         if self.dryrun:
             return
         
         stauts, output = commands.getstatusoutput("%s %s -o notify_pid=%d" 
-            % (self.ftrac, mountpoint, self.pid))
+            % (ftracexe, mountpoint, self.pid))
         if len(output):
-            es("%s\n" % output)
+            self.es("%s\n" % output)
             sys.exit(1)
         
         # since ftrac(fuse) will spawn another process,
@@ -162,12 +151,30 @@ class FUSETrac:
             mountpoint = self.mountpoint
         if self.dryrun:
             return
-        _, output = commands.getstatusoutput("fusermount -u %s" % mountpoint)
-        if len(output):
-            es("warning: %s\n" % output)
+
+        res, output = commands.getstatusoutput("fusermount -u %s" % mountpoint)
+        if  res != 0:
+            self.es("%s\n" % output)
+            if output.find("busy") != -1:
+                self.check_dirusage(mountpoint)
             sys.exit(1)
     
-    # session routines
+    # tracking routines
+    def track(self):
+        try:
+            self.sessioninit()
+            self.poll()
+            self.sessionfinal()
+        except SystemExit:
+            if self.winstart:
+                self.winfinal()
+            return 0
+        except: # using "else:" will produce dummy output
+            if self.winstart:
+                self.winfinal()
+            traceback.print_exc()
+            return 1
+    
     def sessioninit(self):
         self.start = (time.localtime(), timer())
 
@@ -176,7 +183,7 @@ class FUSETrac:
         if not os.path.isdir(self.session):
             # mount ftrac
             if self.mount() != 0:
-                es("error: failed to init ftrac\n")
+                self.es("error: failed to init ftrac\n")
                 sys.exit(1)
 
         # connect to fusetrac server
@@ -187,7 +194,7 @@ class FUSETrac:
                 self.verbose("sessioninit: sock.connect(%s)" % self.sockpath)
             self.servsock.connect(self.sockpath)
         except:
-            es("error: failed to connect to %s\n" % self.sockpath)
+            self.es("error: failed to connect to %s\n" % self.sockpath)
             sys.exit(1)
         
         # start data processing thread
@@ -235,7 +242,7 @@ class FUSETrac:
         curses.curs_set(0)
         self.wincontrol = self.WinController(self)
         self.wincontrol.start()
-        GV_IF_CURSES_INIT = True
+        self.winstart = True
 
     def winfinal(self):
         curses.nocbreak()
@@ -244,9 +251,8 @@ class FUSETrac:
             
     def winoutput(self, data):
         op, res, count, duration, _ = data
-        
         self.win.erase()
-
+        
         summary = "Started at %s, elapsed %f seconds\n" % \
             (time.strftime("%a, %d %b %Y %H:%M:%M %Z", 
              time.localtime(self.tracstart)), timer() - self.tracstart)
@@ -254,7 +260,7 @@ class FUSETrac:
         summary += "rate: %f, count: %d, duration: %f seconds\n" % \
             (1/self.pollrate, count, duration)
         self.win.addstr(summary)
-        
+
         formatstr = "%9s%17s%12s%18s%12s\n"
         titles = formatstr % ("OPERATION", "ACCESSED", "COUNT", "ELAPSED", 
             "BYTES")
@@ -262,21 +268,20 @@ class FUSETrac:
         self.win.addstr(titles, attr)
         
         formatstr = "%9s%17s%12d%18f\n"
+        formatstr_io = "%9s%17s%12d%18f%12s\n"
         str = ""
-        for c in FTRAC_SYSCALL:
-            stamp, cnt, esum = res[c]
-            str += formatstr % (c, 
-                time.strftime("%m/%d %H:%M:%S", time.localtime(stamp)),
-                cnt, esum)
-        
-        formatstr = "%9s%17s%12d%18f%12s\n"
-        for c in FTRAC_IOCALL:
-            stamp, cnt, esum, bytes = res[c]
-            bytestr = "%d%s" % smart_datasize(bytes)
-            str += formatstr % \
-                (c, time.strftime("%m/%d %H:%M:%S", time.localtime(stamp)), cnt, 
-                 esum, bytestr)
-
+        for c in FUSETRAC_SYSCALL:
+            if c in ["read", "write"]:
+                stamp, cnt, esum, bytes = res[c]
+                bytestr = "%d%s" % smart_datasize(bytes)
+                str += formatstr_io % \
+                    (c, time.strftime("%m/%d %H:%M:%S", 
+                    time.localtime(stamp)), cnt, esum, bytestr)
+            else:
+                stamp, cnt, esum = res[c]
+                str += formatstr % (c, 
+                    time.strftime("%m/%d %H:%M:%S", time.localtime(stamp)),
+                    cnt, esum)
         self.win.addstr(str + "\n")
         
         self.win.addstr(
@@ -309,9 +314,9 @@ class FUSETrac:
         start = timer()
         
         try:
-            while (count < self.pollcount and duration < self.pollduration):
+            while True:
                 sock.send(op)
-                res = eval(sock.recv(FTRAC_SOCK_BUFSIZE))
+                res = eval(sock.recv(SOCKET_BUFSIZE))
                 count += 1
                 now = timer()
                 duration = now - start
@@ -332,7 +337,7 @@ class FUSETrac:
     def ftrac_flush(self):
         sock = self.servsock
         sock.send(FTRAC_CTRL_FLUSH)
-        res = sock.recv(FTRAC_SOCK_BUFSIZE)
+        res = sock.recv(SOCKET_BUFSIZE)
         assert(res[0] == FTRAC_CTRL_OK)
 
     # data processing routines
@@ -358,109 +363,3 @@ class FUSETrac:
                     self.ready.wait()
                 self.dataproc(self.data.pop(0))
                 self.ready.release()
-
-### standalone routines ###
-def parse_argv(argv):
-    usage = "usage: %prog [options]"
-    parser = optparse.OptionParser(usage=usage,
-                 formatter=OptionParserHelpFormatter())
-    
-    parser.add_option("-m", "--mode", action="store", type="choice",
-                      dest="mode", metavar="track/poll", default="poll",
-                      choices=["poll", "track"],
-                      help="running mode (default: poll)\n"
-                           "   poll: start polling a tracked fuse tracker")
-    
-    parser.add_option("-p", "--poll", action="store", type="string",
-                      dest="pollpath", metavar="PATH", default="",
-                      help="polling path (default: statust \"\")")
-    
-    parser.add_option("--poll-rate", action="store", type="float",
-                      dest="pollrate", metavar="NUM", default=1.0,
-                      help="polling rate (default: 1)")
-    
-    parser.add_option("--poll-rate-multi", action="store", type="float",
-                      dest="pollratemulti", metavar="NUM", default=2.0,
-                      help="polling rate mutiplier (default: 2)")
-    
-    parser.add_option("--poll-count", action="store", type="int",
-                      dest="pollcount", metavar="NUM", default=-1,
-                      help="polling count (default: Infinity)")
-    
-    parser.add_option("--poll-duration", action="store", type="int",
-                      dest="pollduration", metavar="SECONDS", default=-1,
-                      help="polling duration (default: Infinity)")
-    
-    parser.add_option("--poll-file-only", action="store_true",
-                      dest="pollfileonly", default=False,
-                      help="polling directory itself as file (default: off)")
-    
-    parser.add_option("--mount", action="store", type="string",
-                      dest="mount", metavar="PATH", default=None,
-                      help="use ftrac to mount")
-    
-    parser.add_option("--umount", action="store", type="string",
-                      dest="umount", metavar="PATH", default=None,
-                      help="umount ftrac")
-    
-    parser.add_option("--auto-umount", action="store_true",
-                      dest="autoumount", default=False,
-                      help="auto umount when exit")
-
-    parser.add_option("-v", "--verbosity", action="store", type="int",
-                dest="verbosity", metavar="NUM", default=0,
-                help="verbosity level: 0/1/2/3 (default: 0)")
-
-    opts, args = parser.parse_args(argv)
-    
-    opts.mountpoint = None
-    if opts.mount:
-        opts.mountpoint = opts.mount
-    if opts.umount:
-        opts.mountpoint = opts.umount
-
-    if opts.mode == "poll" and opts.mountpoint is None:
-        if len(args) == 0:
-            es("error: missing mount point\n")
-            sys.exit(1)
-        opts.mountpoint = args[0]
-    
-    opts.pollrate = 1.0 / opts.pollrate
-    if opts.pollcount == -1:
-        opts.pollcount = "Inf"
-    if opts.pollduration == -1:
-        opts.pollduration = "Inf"
-
-    opts.cmd = " ".join(sys.argv)
-    
-    return opts, args
-
-def main():
-    opts, args = parse_argv(sys.argv[1:])
-
-    fusetrac = FUSETrac(opts)
-    if opts.mount:
-        return fusetrac.mount(opts.mount)
-    if opts.umount:
-        return fusetrac.umount(opts.umount)
-
-    try:
-        fusetrac.sessioninit()
-        fusetrac.poll()
-        fusetrac.sessionfinal()
-    except SystemExit:
-        if GV_IF_CURSES_INIT:
-            curses.nocbreak()
-            curses.echo()
-            curses.endwin()
-        return 1
-    except: # do not use "else" here, will produce dummy output
-        if GV_IF_CURSES_INIT:
-            curses.nocbreak()
-            curses.echo()
-            curses.endwin()
-        traceback.print_exc()
-        return 1
-
-if __name__ == "__main__":
-    sys.exit(main())

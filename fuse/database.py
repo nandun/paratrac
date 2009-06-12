@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
 # Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
@@ -22,34 +20,13 @@ import os
 import sqlite3
 import csv
 
-from common import *
+from paratrac.common.database import *
 
-__all__ = ["Database", "FUSETracDB"]
-
-class Database:
-    """General database class"""
-    def __init__(self, dbfile):
-        self.dbfile = os.path.abspath(dbfile)
-        self.db = sqlite3.connect(self.dbfile)
-        self.cur = self.db.cursor()
-    
-    def __del__(self):
-        if self.db is not None:
-            self.db.commit()
-            self.db.close()
-
-    def close(self):
-        self.db.commit()
-        self.db.close()
-        self.db = None
-
-    def cursor(self):
-        return self.db.cursor()
+__all__ = ["FUSETracDB"]
 
 class FUSETracDB(Database):
     def create_tables(self):
-        cur = self.cursor()
-        
+        cur = self.cur
         # table: env
         cur.execute("DROP TABLE IF EXISTS env")
         cur.execute("CREATE TABLE IF NOT EXISTS env "
@@ -115,43 +92,14 @@ class FUSETracDB(Database):
         cur.execute("select stamp from tracelog")
         return cur.fetchone()[0]
 
-#
-# Standalone routines
-#
-def parse_argv(argv):
-    usage = "usage: %prog TRACE_LOG_DIRECTORY"
-    parser = optparse.OptionParser(usage=usage,
-                 formatter=OptionParserHelpFormatter())
-
-    opts, args = parser.parse_args(argv)
-
-    return opts, args
-
-def get_db(dbdir):
-    if not os.path.exists("%s/env.log" % dbdir):
-        return None
-
-    f = open("%s/env.log" % dbdir)
-    line = f.readline().strip()
-    assert(line.startswith("prog:"))
-    prog = line.split(":")[1]
-    f.close()
-
-    if prog == "ftrac":
-        return FUSETracDB("%s/data.db" % dbdir)
-
-def main():
-    opts, args = parse_argv(sys.argv[1:])
-
-    # Figure out database type
-    db = get_db(args[0])
-    if db is None:
-        ws("failed to figure out database type\n")
-        return 1
-    db.create_tables()
-    db.import_data()
-
-    return 0
-
-if __name__ == "__main__":
-    sys.exit(main())
+    # proc map routines
+    def procmap_fetchall(self):
+        cur = self.db.cursor()
+        cur.execute("SELECT * FROM procmap")
+        return cur.fetchall()
+    
+    # file map routines
+    def filemap_fetchall(self):
+        cur = self.db.cursor()
+        cur.execute("SELECT * FROM filemap")
+        return cur.fetchall()

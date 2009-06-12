@@ -16,52 +16,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #############################################################################
 
-### common constants, routines and utilities ###
+#
+# Utilities
+#
 
 import sys
 import optparse
 import textwrap
 import time
 
-PARATRAC_VERSION = 0.2
-PARATRAC_DATE = "2009-05-08"
-
-KB = 1024
-MB = 1048576
-GB = 1073741824
-TB = 1099511627776
-
-# System call number
-SYSC = {}
-SYSC["lstat"] = 84
-SYSC["fstat"] = 28
-SYSC["access"] = 33
-SYSC["readlink"] = 85
-SYSC["opendir"]	= 205
-SYSC["readdir"] = 89
-SYSC["closedir"] = 206
-SYSC["mknod"] = 14
-SYSC["mkdir"] = 39
-SYSC["unlink"] = 10
-SYSC["rmdir"] = 40
-SYSC["symlink"] = 83
-SYSC["rename"] = 38
-SYSC["link"] = 9
-SYSC["chmod"] = 15
-SYSC["chown"] = 16
-SYSC["truncate"] = 92
-SYSC["utime"] = 30
-SYSC["open"] = 5
-SYSC["close"] = 6
-SYSC["read"] = 3
-SYSC["write"] = 4
-SYSC["statfs"] = 99
-SYSC["flush"] = 203
-SYSC["fsync"] = 118
-SYSC["setxattr"] = 201
-SYSC["getxattr"] = 202
-SYSC["listxattr"] = 203
-SYSC["removexattr"] = 204
+from consts import *
 
 if sys.platform == "win32":
     timer = time.clock
