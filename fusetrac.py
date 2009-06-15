@@ -73,9 +73,23 @@ def parse_argv(argv):
         help="path or directory of trace data")
     
     parser.add_option("-p", "--plot", action="append", type="string",
-        dest="plotlist", metavar="TYPE", default=None,
+        dest="plotlist", metavar="TYPE", default=[],
         help="plot types:\n"
+             "  sysc_count: system call count\n"
+             "  sysc_elapsed: elapsed time of system call\n"
+             "  sysc_elapsed_sum: sum of elapsed time of system call\n"
+             "  io_offset: file offset in I/O\n"
+             "  io_length: request bytes in one I/O call\n"
+             "  io_bytes: total bytes in I/O\n"
              "  proctree: process tree in workflow\n")
+    
+    parser.add_option("--ps", "--plot-series", action="append", type="string",
+        dest="plotseries", metavar="SERIES", default=[],
+        help="plot series")
+    
+    parser.add_option("--plot-log-y", action="store", type="float",
+        dest="plotlogy", metavar="NUM", default=1,
+        help="set y axis to log scale")
 
     # Debug and user interaction
     parser.add_option("-v", "--verbosity", action="store", type="choice",

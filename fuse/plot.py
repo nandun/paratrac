@@ -25,50 +25,72 @@ import os
 import sys
 import numpy
 import matplotlib.pyplot
+import matplotlib.widgets
 
 from paratrac.common.consts import *
+from paratrac.common.utils import *
+from paratrac.common.plot import *
+
 from track import FUSETRAC_SYSCALL
 from database import *
 
 __all__ = ["FUSETracPlot"]
 
-class FUSETracPlot():
+class FUSETracPlot(Plot):
     def __init__(self, dbfile, opts=None):
-        self.datadir = os.path.dirname(dbfile)
+        Plot.__init__(self, dbfile)
         self.db = FUSETracDB(dbfile)
-        self.pyplot = matplotlib.pyplot
         self.plotlist = []
-        self.usewin = False
-        self.prompt = True
+        self.plotseries = []
+        self.plotlogy = 1
 
         if opts is not None:
             for k, v in opts.__dict__.items():
                 if self.__dict__.has_key(k):
                     self.__dict__[k] = v
 
-        self.ws = sys.stdout.write
-        self.es = sys.stderr.write
-
-    def show(self):
-        if self.usewin:
-            self.pyplot.show()
-
     def plot(self):
-        #self.plot_sysc_elapsed_sum(SYSC.keys(), None)
-        #self.plot_syscall_count()
-        #self.plot_syscall_elapsed()
+        # System call
+        if "sysc_count" in self.plotlist:
+            self.usewin = True
+            self.plot_syscall_count()
+        if "sysc_elapsed" in self.plotlist:
+            self.usewin = True
+            self.plot_syscall_elapsed()
+        if "sysc_elapsed_sum" in self.plotlist:
+            self.usewin = True
+            self.plot_syscall_elapsed_sum()
+        
+        # I/O
+        if "io_offset" in self.plotlist:
+            self.usewin = True
+            self.plot_io_offset()
+        if "io_length" in self.plotlist:
+            self.usewin = True
+            self.plot_io_length()
+        if "io_bytes" in self.plotlist:
+            self.usewin = True
+            self.plot_io_bytes()
+
         if "proctree" in self.plotlist:
             self.plot_proctree()
     
     # Plot routines for each type of figure
     def plot_syscall_count(self):
+        if self.plotseries == []:
+            syscalls = FUSETRAC_SYSCALL
+        else:
+            syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
+        
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
         ax.set_title("System Calls Counts")
         ax.set_xlabel("Time Stamp (seconds)")
         ax.set_ylabel("Operation Count")
-
-        sysc_num = [SYSCALL[s] for s in FUSETRAC_SYSCALL]
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
+        
+        sysc_num = [SYSCALL[s] for s in syscalls]
         first_stamp = self.db.get_first_stamp()
         lines = []
         for sc in sysc_num:
@@ -79,22 +101,33 @@ class FUSETracPlot():
                 sum += 1
                 stamp.append(s[0] - first_stamp)
                 count.append(sum)
-            lines.append(ax.plot(stamp, count, linewidth=0.3))
-        
+            lines.append(ax.plot(stamp, count, linewidth=0.5, picker=5))
+               
         # plot legend
-        #ax.legend(lines, FUSETRAC_SYSCALL, loc="upper right", numpoints=1)
-        #legends = fig.get_legend()
-        #legends.draw_frame(False)
-        #fig.setp(ltext, fontsize="small")
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
+        legends.draw_frame(False)
+        for t in legends.get_texts():
+            t.set_size("small")
 
     def plot_syscall_elapsed(self):
+        if self.plotseries == []:
+            syscalls = FUSETRAC_SYSCALL
+        else:
+            syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
+        
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
-        ax.set_title("System Calls Elapsed Time (seconds)")
+        ax.set_title("System Calls Elapsed Time")
         ax.set_xlabel("Time Stamp (seconds)")
         ax.set_ylabel("Elapsed Time (seconds)")
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
 
-        sysc_num = [SYSCALL_FILESYSTEM[s] for s in FUSETRAC_SYSCALL]
+        if self.plotlogy != 1:
+            ax.semilogy(basex=self.plotlogy)
+
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in syscalls]
         first_stamp = self.db.get_first_stamp()
         lines = []
         for sc in sysc_num:
@@ -106,22 +139,30 @@ class FUSETracPlot():
             lines.append(ax.plot(stamp, elapsed, linewidth=0.3))
         
         # plot legend
-        #self.pyplot.legend(lines, sysc, loc="upper right", numpoints=1)
-        #legends = self.pyplot.gca().get_legend()
-        #ltext = legends.get_texts()
-        #legends.draw_frame(False)
-        #self.pyplot.setp(ltext, fontsize="small")
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
+        legends.draw_frame(False)
+        for t in legends.get_texts():
+            t.set_size("small")
 
-    def plot_sysc_elapsed_sum(self, sysc=[], log=10):
-        # plot summary
-        self.pyplot.title("Summation of System Calls Elapsed Time (seconds)")
-        self.pyplot.xlabel("Time Stamp (seconds)")
-        self.pyplot.ylabel("Summation of Elapsed Time (seconds)")
-
-        if log is not None:
-            self.pyplot.semilogy(basex=log)
+    def plot_syscall_elapsed_sum(self):
+        if self.plotseries == []:
+            syscalls = FUSETRAC_SYSCALL
+        else:
+            syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
         
-        sysc_num = [SYSC[s] for s in sysc]
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("Summation of System Calls Elapsed Time")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Summation of Elapsed Time (seconds)")
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
+
+        if self.plotlogy != 1:
+            ax.semilogy(basex=self.plotlogy)
+        
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in syscalls]
         first_stamp = self.db.get_first_stamp()
         lines = []
         for sc in sysc_num:
@@ -132,14 +173,124 @@ class FUSETracPlot():
                 sum += e
                 stamp.append(s - first_stamp)
                 esum.append(sum)
-            lines.append(self.pyplot.plot(stamp, esum, linewidth=0.3))
+            lines.append(ax.plot(stamp, esum, linewidth=0.3))
         
         # plot legend
-        self.pyplot.legend(lines, sysc, loc="upper right", numpoints=1)
-        legends = self.pyplot.gca().get_legend()
-        ltext = legends.get_texts()
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
         legends.draw_frame(False)
-        self.pyplot.setp(ltext, fontsize="small")
+        for t in legends.get_texts():
+            t.set_size("small")
+    
+    def plot_io_offset(self):
+        if self.plotseries == []:
+            syscalls = ["read", "write"]
+        else:
+            syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("File Offset in I/O")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Requested Offset (bytes)")
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
+        
+        if self.plotlogy != 1:
+            ax.semilogy(basex=self.plotlogy)
+        # db format
+        # stamp, pid, sysc, fid, res, elapsed, size, offset
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in syscalls]
+        first_stamp = self.db.get_first_stamp()
+        lines = []
+        for sc in sysc_num:
+            stamp = []
+            offset = []
+            for s,o in self.db.select_sysc(sc, "stamp,aux2"):
+                stamp.append(s - first_stamp)
+                offset.append(o)
+            lines.append(ax.plot(stamp, offset, linewidth=0.3))
+        
+        # plot legend
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
+        legends.draw_frame(False)
+        for t in legends.get_texts():
+            t.set_size("small")
+        
+    def plot_io_length(self):
+        if self.plotseries == []:
+            syscalls = ["read", "write"]
+        else:
+            syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("I/O Length")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Requested Length (bytes)")
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
+        
+        if self.plotlogy != 1:
+            ax.semilogy(basex=self.plotlogy)
+        # db format
+        # stamp, pid, sysc, fid, res, elapsed, size, offset
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in syscalls]
+        first_stamp = self.db.get_first_stamp()
+        lines = []
+        for sc in sysc_num:
+            stamp = []
+            length = []
+            for s,l in self.db.select_sysc(sc, "stamp,aux1"):
+                stamp.append(s - first_stamp)
+                length.append(l)
+            lines.append(ax.plot(stamp, length, linewidth=0.3))
+        
+        # plot legend
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
+        legends.draw_frame(False)
+        for t in legends.get_texts():
+            t.set_size("small")
+    
+    def plot_io_bytes(self):
+        if self.plotseries == []:
+            syscalls = ["read", "write"]
+        else:
+            syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        fig = self.pyplot.figure()
+        ax = fig.add_subplot(1,1,1)
+        ax.set_title("Total I/O Bytes")
+        ax.set_xlabel("Time Stamp (seconds)")
+        ax.set_ylabel("Data Volumn (bytes)")
+        ax.fmt_xdata = self.format_data_float
+        ax.fmt_ydata = self.format_data_float
+        
+        if self.plotlogy != 1:
+            ax.semilogy(basex=self.plotlogy)
+        # db format
+        # stamp, pid, sysc, fid, res, elapsed, size, offset
+        sysc_num = [SYSCALL_FILESYSTEM[s] for s in syscalls]
+        first_stamp = self.db.get_first_stamp()
+        lines = []
+        for sc in sysc_num:
+            stamp = []
+            bytes = []
+            sum = 0
+            for s,l in self.db.select_sysc(sc, "stamp,aux1"):
+                sum += l 
+                stamp.append(s - first_stamp)
+                bytes.append(sum)
+            lines.append(ax.plot(stamp, bytes, linewidth=0.3))
+        
+        # plot legend
+        ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
+        legends = ax.get_legend()
+        legends.draw_frame(False)
+        for t in legends.get_texts():
+            t.set_size("small")
 
     # workflow plot using Graphviz
     def plot_proctree(self):
