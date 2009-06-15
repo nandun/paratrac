@@ -119,7 +119,7 @@ def parse_argv(argv):
     # Database options
 
     # Plot options
-    if opts.plotlist is not None:
+    if opts.plotlist != []:
         # check data directory
         if opts.data is None:
             sys.stderr.write("error: data path or directory required\n")

@@ -90,6 +90,7 @@
 #define SYSC_FS_CHOWN          16      /* lchown() */
 #define SYSC_FS_TRUNCATE       92
 #define SYSC_FS_UTIME          30
+#define SYSC_FS_CREAT          8
 #define SYSC_FS_OPEN           5
 #define SYSC_FS_CLOSE		   6
 #define SYSC_FS_READ           3
@@ -159,6 +160,7 @@ typedef struct stat_fs {
 	struct stat_sc chown;
 	struct stat_sc truncate;
 	struct stat_sc utime;
+	struct stat_sc creat;
 	struct stat_sc open;
 	struct stat_sc statfs;
 	struct stat_sc flush;
@@ -480,6 +482,7 @@ static char * stat_fs_to_dictstr(stat_fs_t fs)
 		"'chown':(%.9f,%lu,%.9f),"
 		"'truncate':(%.9f,%lu,%.9f),"
 		"'utime':(%.9f,%lu,%.9f),"
+		"'creat':(%.9f,%lu,%.9f),"
 		"'open':(%.9f,%lu,%.9f),"
 		"'statfs':(%.9f,%lu,%.9f),"
 		"'flush':(%.9f,%lu,%.9f),"
@@ -512,6 +515,7 @@ static char * stat_fs_to_dictstr(stat_fs_t fs)
 		fs->chown.stamp, fs->chown.cnt, fs->chown.esum,
 		fs->truncate.stamp, fs->truncate.cnt, fs->truncate.esum,
 		fs->utime.stamp, fs->utime.cnt, fs->utime.esum,
+		fs->creat.stamp, fs->creat.cnt, fs->creat.esum,
 		fs->open.stamp, fs->open.cnt, fs->open.esum,
 		fs->statfs.stamp, fs->statfs.cnt, fs->statfs.esum,
 		fs->flush.stamp, fs->flush.cnt, fs->flush.esum,
@@ -1349,6 +1353,43 @@ static int ftrac_utime(const char *path, struct utimbuf *buf)
 }
 #endif
 
+static int ftrac_create(const char *path, mode_t mode, struct fuse_file_info
+*fi)
+{
+	int fd;
+
+#ifdef FTRAC_TRACE_ENABLED
+	int res;
+	struct timespec start, end;
+	pid_t pid = fuse_get_context()->pid;
+	
+	clock_gettime(FTRAC_CLOCK, &start);
+#endif
+    
+	fd = open(path, fi->flags, mode);
+	
+#ifdef FTRAC_TRACE_ENABLED
+	clock_gettime(FTRAC_CLOCK, &end);
+	
+	res = fd == -1 ? -1 : 0;
+	sc_log_common(&ftrac.fs.creat, SYSC_FS_CREAT, &start, &end, pid, res, path);
+#endif
+
+	if (fd == -1)
+		return -errno;
+
+#ifdef FTRAC_TRACE_ENABLED
+	struct ftrac_file *ff = g_new0(struct ftrac_file, 1);
+	ff->fd = fd;
+	ff->pid = pid;
+	fi->fh = (unsigned long) ff;
+#else
+	fi->fh = fd;
+#endif
+	
+	return 0;
+}
+
 static int ftrac_open(const char *path, struct fuse_file_info *fi)
 {
 	int fd;
@@ -1734,6 +1775,7 @@ static struct fuse_operations ftrac_oper = {
 #else
 	.utime			= ftrac_utime,
 #endif
+	.create			= ftrac_create,
 	.open			= ftrac_open,
 	.read			= ftrac_read,
 	.write			= ftrac_write,

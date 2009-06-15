@@ -35,8 +35,8 @@ __all__ = ["FUSETracker"]
 
 FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir", 
     "readdir", "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", 
-    "rename", "link", "chmod", "chown", "truncate", "utime", "open", 
-    "statfs", "flush", "close", "fsync", "read", "write"]
+    "rename", "link", "chmod", "chown", "truncate", "utime", "creat", 
+    "open", "statfs", "flush", "close", "fsync", "read", "write"]
 
 FTRAC_PATH_PREFIX = "/tmp"
 FTRAC_SIGNAL_INIT = signal.SIGUSR1

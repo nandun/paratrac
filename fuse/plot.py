@@ -74,6 +74,8 @@ class FUSETracPlot(Plot):
 
         if "proctree" in self.plotlist:
             self.plot_proctree()
+        if "workflow" in self.plotlist:
+            self.plot_workflow()
     
     # Plot routines for each type of figure
     def plot_syscall_count(self):
@@ -296,18 +298,18 @@ class FUSETracPlot(Plot):
     def plot_proctree(self):
         gvFile = open("%s/proctree.gv" % self.datadir, "wb")
         sifFile = open("%s/proctree.sif" % self.datadir, "wb")
-        attrFile = open("%s/proctree.attr" % self.datadir, "wb")
+        noaFile = open("%s/proctree.noa" % self.datadir, "wb")
         
         gvFile.write("digraph proctree {\n")
         for pid, ppid, cmdline in self.db.procmap_fetchall():
             gvFile.write("\t%d->%d;\n" % (ppid, pid))
             sifFile.write("%d call %d\n" % (ppid, pid))
-            attrFile.write("%d = %s\n" % (pid, cmdline))
+            noaFile.write("%d = %s\n" % (pid, cmdline))
         gvFile.write("}\n")
         
         gvFile.close()
         sifFile.close()
-        attrFile.close()
+        noaFile.close()
         
         # prompt user
         if self.prompt:
@@ -316,18 +318,42 @@ class FUSETracPlot(Plot):
                     "  %s/proctree.gv\n"
                     "Please use Cytoscape to visualize:\n"
                     "  %s/proctree.sif\n"
-                    "  %s/proctree.attr\n"
+                    "  %s/proctree.noa\n"
                     % (self.datadir, self.datadir, self.datadir))
 
     def plot_workflow(self):
+        SYSCALL_READ = SYSCALL["read"]
+        SYSCALL_WRITE = SYSCALL["write"]
+        SYSCALL_CREAT = SYSCALL["creat"]
+
         gvFile = open("%s/workflow.gv" % self.datadir, "wb")
         sifFile = open("%s/workflow.sif" % self.datadir, "wb")
-        attrFile = open("%s/workflow.attr" % self.datadir, "wb")
+        noaFile = open("%s/workflow.noa" % self.datadir, "wb")
+        eoaFile = open("%s/workflow.eoa" % self.datadir, "wb")
         
         gvFile.write("digraph proctree {\n")
-            
+        
+        # fid read by pid for bytes
+        for pid,fid,bytes in self.db.select_sysc_group_by_file(SYSCALL_READ,
+            "pid,fid,SUM(aux1)"):
+            sifFile.write("f%d read p%d\n" % (fid, pid))
+            eoaFile.write("f%d (read) p%d = %d\n" % (fid, pid, bytes))
+        
+        # pid write to fid for bytes
+        for pid,fid,bytes in self.db.select_sysc_group_by_file(SYSCALL_WRITE,
+            "pid,fid,SUM(aux1)"):
+            sifFile.write("p%d write f%d\n" % (pid, fid))
+            eoaFile.write("p%d (write) f%d = %d\n" % (pid, fid, bytes))
+
+        # write node attributes
+        for pid,cmdline in self.db.procmap_fetchall("pid,cmdline"):
+            noaFile.write("p%d = %s\n" % (pid, cmdline))
+        for fid,path in self.db.filemap_fetchall():
+            noaFile.write("f%d = %s\n" % (fid, path))
+
         gvFile.write("}\n")
         
         gvFile.close()
         sifFile.close()
-        attFile.close()
+        noaFile.close()
+        eoaFile.close()

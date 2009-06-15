@@ -81,21 +81,38 @@ class FUSETracDB(Database):
             cur.execute("INSERT INTO procmap VALUES (?,?,?)",
                 line.strip().split(":", 2))
         procmapFile.close()
-
+    
+    # trace routines
     def select_sysc(self, sysc, fields):
         cur = self.db.cursor()
-        cur.execute("select %s from tracelog where sysc=?" % fields, (sysc,))
+        cur.execute("SELECT %s FROM tracelog WHERE sysc=?" % fields, (sysc,))
+        return cur.fetchall()
+
+    def select_sysc_group_by_file(self, sysc, fields):
+        cur = self.cur
+        cur.execute("SELECT %s FROM tracelog where sysc=? group by fid" 
+            % fields, (sysc,))
+        return cur.fetchall()
+    
+    def select_file(self, fid, fields):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM tracelog WHERE fid=?" % fields, (fid,))
         return cur.fetchall()
 
     def get_first_stamp(self):
         cur = self.db.cursor()
-        cur.execute("select stamp from tracelog")
+        cur.execute("SELECT stamp FROM tracelog")
         return cur.fetchone()[0]
-
+    
     # proc map routines
-    def procmap_fetchall(self):
+    def procmap_fetchall(self, fields="*"):
         cur = self.db.cursor()
-        cur.execute("SELECT * FROM procmap")
+        cur.execute("SELECT %s FROM procmap" % fields)
+        return cur.fetchall()
+
+    def procmap_select_pid(self, pid, fields):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM procmap WHERE pid=?" % fields, (pid,))
         return cur.fetchall()
     
     # file map routines
