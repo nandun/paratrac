@@ -1,5 +1,7 @@
-2009-06-12 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+2009-06-22 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* process tree graph (graphviz and cytoscape)
+	* workflow graph (cytoscape)
+	* v0.2 release
 
 2009-05-09 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* add show/hide all series/values control to charts

@@ -64,4 +64,8 @@ SYSCALL_FILESYSTEM["getxattr"] = 202
 SYSCALL_FILESYSTEM["listxattr"] = 203
 SYSCALL_FILESYSTEM["removexattr"] = 204
 
+# reverse map
+for k, v in SYSCALL_FILESYSTEM.items():
+    SYSCALL_FILESYSTEM[v] = k
+
 SYSCALL.update(SYSCALL_FILESYSTEM)

@@ -175,7 +175,7 @@ class FUSETracPlot(Plot):
                 sum += e
                 stamp.append(s - first_stamp)
                 esum.append(sum)
-            lines.append(ax.plot(stamp, esum, linewidth=0.3))
+            lines.append(ax.plot(stamp, esum, linewidth=1))
         
         # plot legend
         ax.legend(lines, syscalls, loc=(1.0,0.1), numpoints=1)
@@ -322,38 +322,73 @@ class FUSETracPlot(Plot):
                     % (self.datadir, self.datadir, self.datadir))
 
     def plot_workflow(self):
-        SYSCALL_READ = SYSCALL["read"]
-        SYSCALL_WRITE = SYSCALL["write"]
-        SYSCALL_CREAT = SYSCALL["creat"]
-
-        gvFile = open("%s/workflow.gv" % self.datadir, "wb")
+        NEW = [SYSCALL[i] for i in ["mknod", "mkdir", "creat"]]
+        DEL = [SYSCALL[i] for i in ["unlink", "rmdir"]]
+        IN = [SYSCALL["read"]]
+        OUT = [SYSCALL["write"]]
+        TRAN = [SYSCALL[i] for i in ["symlink", "rename", "link"]]
         sifFile = open("%s/workflow.sif" % self.datadir, "wb")
-        noaFile = open("%s/workflow.noa" % self.datadir, "wb")
-        eoaFile = open("%s/workflow.eoa" % self.datadir, "wb")
-        
-        gvFile.write("digraph proctree {\n")
-        
-        # fid read by pid for bytes
-        for pid,fid,bytes in self.db.select_sysc_group_by_file(SYSCALL_READ,
-            "pid,fid,SUM(aux1)"):
-            sifFile.write("f%d read p%d\n" % (fid, pid))
-            eoaFile.write("f%d (read) p%d = %d\n" % (fid, pid, bytes))
-        
-        # pid write to fid for bytes
-        for pid,fid,bytes in self.db.select_sysc_group_by_file(SYSCALL_WRITE,
-            "pid,fid,SUM(aux1)"):
-            sifFile.write("p%d write f%d\n" % (pid, fid))
-            eoaFile.write("p%d (write) f%d = %d\n" % (pid, fid, bytes))
+        ncsvFile = open("%s/workflow-nodes.csv" % self.datadir, "wb")
+        ecsvFile = open("%s/workflow-edges.csv" % self.datadir, "wb")
 
-        # write node attributes
-        for pid,cmdline in self.db.procmap_fetchall("pid,cmdline"):
-            noaFile.write("p%d = %s\n" % (pid, cmdline))
-        for fid,path in self.db.filemap_fetchall():
-            noaFile.write("f%d = %s\n" % (fid, path))
-
-        gvFile.write("}\n")
+        ncsvFile.write("id,type,info\n")
+        ecsvFile.write("id,bytes\n")
         
-        gvFile.close()
+        pids = []
+        for sysc in NEW:
+            log = self.db.select_sysc(sysc, "pid,fid")
+            if log is not None:
+                for pid, fid in log:
+                    sifFile.write("p%d %s f%d\n" % (pid, SYSCALL[sysc], fid))
+                    pids.append(pid)
+
+        for sysc in DEL:
+            log = self.db.select_sysc(sysc, "pid,fid")
+            if log is not None:
+                syscname = SYSCALL[sysc]
+                for pid, fid in log:
+                    sifFile.write("f%d %s p%d\n" % (fid, syscname, pid))
+                    pids.append(pid)
+
+        for sysc in TRAN:
+            log = self.db.select_sysc(sysc, "pid,fid,aux1")
+            if log is not None:
+                syscname = SYSCALL[sysc]
+                for pid, fromfid, tofid in log:
+                    sifFile.write("f%d %s p%d\n" % (fromfid, syscname, pid))
+                    sifFile.write("p%d %s f%d\n" % (pid, syscname, tofid))
+                    pids.append(pid)
+
+        for sysc in IN:
+            log = self.db.select_sysc_group_by_file(sysc, "pid,fid,SUM(aux1)")
+            if log is not None:
+                syscname = SYSCALL[sysc]
+                for pid, fid, bytes in log:
+                    sifFile.write("f%d %s p%d\n" % (fid, syscname, pid))
+                    ecsvFile.write("f%d (%s) p%d,%d\n" 
+                        % (fid, syscname, pid, bytes))
+                    pids.append(pid)
+        
+        for sysc in OUT:
+            log = self.db.select_sysc_group_by_file(sysc, "pid,fid,SUM(aux1)")
+            if log is not None:
+                syscname = SYSCALL[sysc]
+                for pid, fid, bytes in log:
+                    sifFile.write("p%d %s f%d\n" % (pid, syscname, fid))
+                    ecsvFile.write("p%d (%s) f%d,%d\n" 
+                        % (pid, syscname, fid, bytes))
+                    pids.append(pid)
+        
+        for pid in pids:
+            ppid = self.db.procmap_get_ppid(pid)
+            sifFile.write("p%d fork p%d\n" % (ppid, pid))
+
+        # output node attributes
+        for item in self.db.procmap_fetchall("pid,cmdline"):
+            ncsvFile.write("p%d,proc,%s\n" % item)
+        for item in self.db.filemap_fetchall():
+            ncsvFile.write("f%d,file,%s\n" % item)
+
         sifFile.close()
-        noaFile.close()
-        eoaFile.close()
+        ncsvFile.close()
+        ecsvFile.close()

@@ -90,7 +90,7 @@ class FUSETracDB(Database):
 
     def select_sysc_group_by_file(self, sysc, fields):
         cur = self.cur
-        cur.execute("SELECT %s FROM tracelog where sysc=? group by fid" 
+        cur.execute("SELECT %s FROM tracelog WHERE sysc=? GROUP BY fid" 
             % fields, (sysc,))
         return cur.fetchall()
     
@@ -98,6 +98,11 @@ class FUSETracDB(Database):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM tracelog WHERE fid=?" % fields, (fid,))
         return cur.fetchall()
+
+    def select_sysc_on_fid(self, fid, sysc, fields="*"):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM tracelog WHERE fid=? AND sysc=?" %
+            fields, (fid, sysc))
 
     def get_first_stamp(self):
         cur = self.db.cursor()
@@ -114,9 +119,14 @@ class FUSETracDB(Database):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM procmap WHERE pid=?" % fields, (pid,))
         return cur.fetchall()
+
+    def procmap_get_ppid(self, pid):
+        cur = self.cur
+        cur.execute("SELECT ppid FROM procmap WHERE pid=?", (pid,))
+        return cur.fetchone()[0]
     
     # file map routines
-    def filemap_fetchall(self):
+    def filemap_fetchall(self, fields="*"):
         cur = self.db.cursor()
-        cur.execute("SELECT * FROM filemap")
+        cur.execute("SELECT %s FROM filemap" % fields)
         return cur.fetchall()
