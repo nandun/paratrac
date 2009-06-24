@@ -16,6 +16,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #############################################################################
 
+#
+# Tracker classes
+#
+
+__all__ = ["Tracker", "FUSETracker"]
+
 import commands
 import curses
 import curses.textpad
@@ -27,11 +33,34 @@ import sys
 import threading
 import traceback
 
-from paratrac.common.consts import *
-from paratrac.common.utils import *
-from paratrac.common.track import *
+from common import *
 
-__all__ = ["FUSETracker"]
+class Tracker:
+    """
+    Tracker base class
+    """
+    def __init__(self):
+        # Environmental variables
+        self.uid = os.getuid()
+        self.pid = os.getpid()
+        self.user = pwd.getpwuid(self.uid)[0]
+        self.hostname = socket.gethostname()
+        self.platform = " ".join(os.uname())
+        self.cmdline = " ".join(sys.argv)
+
+        # Debug variables
+        self.verbosity = 0
+        self.verbosestr = "[trac:%5d] %s\n"
+        self.verbosecnt = 0
+        self.dryrun = False
+
+        # Streams
+        self.ws = sys.stdout.write
+        self.es = sys.stderr.write
+
+    def verbose(self, msg):
+        self.ws(self.verbosestr % (self.verbosecnt, msg))
+        self.verbosecnt += 1
 
 FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir", 
     "readdir", "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", 
@@ -87,8 +116,8 @@ class FUSETracker(Tracker):
         res, path = commands.getstatusoutput("which ftrac")
         if res == 0:
             return path
-        elif os.path.exists("./fuse/ftrac/ftrac"):
-            return os.path.abspath("./fuse/ftrac/ftrac")
+        elif os.path.exists("./fuse/ftrac"):
+            return os.path.abspath("./fuse/ftrac")
         else:
             self.es("error: ftrac executable not found.\n")
             sys.exit(1)

@@ -24,13 +24,16 @@
 
 import os
 import sys
+import optparse
 
-from common.version import *
-from common.consts import *
-from common.utils import *
+from common import *
+from track import FUSETracker
+from data import FUSETracDB
 
-from fuse.track import FUSETracker
-from fuse.database import FUSETracDB
+def print_version():
+	from version import PARATRAC_VERSION_STRING
+	sys.stdout.write(PARATRAC_VERSION_STRING)
+	sys.exit(0)
 
 def parse_argv(argv):
     usage = "Usage: %prog [OPTIONS]"
@@ -81,7 +84,8 @@ def parse_argv(argv):
              "  io_offset: file offset in I/O\n"
              "  io_length: request bytes in one I/O call\n"
              "  io_bytes: total bytes in I/O\n"
-             "  proctree: process tree in workflow\n")
+             "  proctree: process tree in workflow\n"
+             "  workflow: workflow DAG\n")
     
     parser.add_option("--ps", "--plot-series", action="append", type="string",
         dest="plotseries", metavar="SERIES", default=[],
@@ -100,11 +104,17 @@ def parse_argv(argv):
     parser.add_option("--no-prompt", action="store_false",
         dest="prompt", default=True, help="user prompt (default: on)")
     
+    parser.add_option("--version", action="store_true",
+        dest="version", default=False, help="show version")
+    
     if len(argv) == 0:
         parser.print_help()
         sys.exit(0)
 
     opts, args = parser.parse_args(argv)
+	
+    if opts.version:
+        print_version()
     
     # Tracking options
     if opts.track is not None:
@@ -155,7 +165,7 @@ def main():
 
     # Plot
     if opts.plotlist:
-        from fuse.plot import FUSETracPlot # performance
+        from plot import FUSETracPlot # avoid import overhead
         plot = FUSETracPlot(opts.data, opts)
         plot.plot()
         plot.show()

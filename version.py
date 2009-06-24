@@ -1,7 +1,7 @@
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
 # Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
-
+#
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -17,30 +17,26 @@
 #############################################################################
 
 #
-# General database class
+# ParaTrac Version
 #
 
-import os
-import sqlite3
+PARATRAC_VERSION = 0.2
+PARATRAC_DATE = "2009-06-10"
+PARATRAC_AUTHOR = "Nan Dun"
+PARATRAC_BUG_REPORT = "dunnan@yl.is.s.u-tokyo.ac.jp"
+PARATRAC_WEB = "http://paratrac.googlecode.com/"
+PARATRAC_LICENCE = "GNU General Public License"
+PARATRAC_LICENCE_VERSION = "3"
 
-__all__ = ["Database"]
+PARATRAC_VERSION_STRING = """\
+ParaTrac: Scalable Tracking Tools for Parallel Applications 
+Version: %s, build %s
+Author: %s <%s>
+Web: %s
 
-class Database:
-    def __init__(self, dbfile):
-        self.dbfile = os.path.abspath(dbfile)
-        self.db = sqlite3.connect(self.dbfile)
-        self.cur = self.db.cursor()
-    
-    def __del__(self):
-        if self.db is not None:
-            self.db.commit()
-            self.db.close()
-
-    def close(self):
-        self.db.commit()
-        self.db.close()
-        self.db = None
-
-    def cursor(self):
-        return self.db.cursor()
-
+This program is free software: you can redistribute it and/or modify
+it under the terms of the %s as published by
+the Free Software Foundation, either version %s of the License, or
+(at your option) any later version.
+""" % (PARATRAC_VERSION, PARATRAC_DATE, PARATRAC_AUTHOR, PARATRAC_BUG_REPORT,
+PARATRAC_WEB, PARATRAC_LICENCE, PARATRAC_LICENCE_VERSION)

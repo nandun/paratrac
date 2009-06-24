@@ -16,13 +16,34 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #############################################################################
 
+#
+# Data persistence
+#
+
+__all__ = ["Database", "FUSETracDB"]
+
 import os
 import sqlite3
 import csv
 
-from paratrac.common.database import *
+class Database:
+    def __init__(self, dbfile):
+        self.dbfile = os.path.abspath(dbfile)
+        self.db = sqlite3.connect(self.dbfile)
+        self.cur = self.db.cursor()
+    
+    def __del__(self):
+        if self.db is not None:
+            self.db.commit()
+            self.db.close()
 
-__all__ = ["FUSETracDB"]
+    def close(self):
+        self.db.commit()
+        self.db.close()
+        self.db = None
+
+    def cursor(self):
+        return self.db.cursor()
 
 class FUSETracDB(Database):
     def create_tables(self):

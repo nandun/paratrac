@@ -21,20 +21,37 @@
 # see http://matplotlib.sourceforge.net for details
 #
 
+__all__ = ["Plot", "FUSETracPlot"]
+
 import os
 import sys
 import numpy
 import matplotlib.pyplot
 import matplotlib.widgets
 
-from paratrac.common.consts import *
-from paratrac.common.utils import *
-from paratrac.common.plot import *
-
+from common import *
 from track import FUSETRAC_SYSCALL
-from database import *
+from data import *
 
-__all__ = ["FUSETracPlot"]
+class Plot():
+    def __init__(self, dbfile):
+        self.datadir = os.path.dirname(dbfile)
+        self.db = None
+        self.pyplot = matplotlib.pyplot
+        self.widgets = matplotlib.widgets
+        
+        self.usewin = False
+        self.prompt = True
+        
+        self.ws = sys.stdout.write
+        self.es = sys.stderr.write
+    
+    def show(self):
+        if self.usewin:
+            self.pyplot.show()
+
+    def format_data_float(self, data):
+        return "%.9f" % data
 
 class FUSETracPlot(Plot):
     def __init__(self, dbfile, opts=None):
@@ -392,3 +409,12 @@ class FUSETracPlot(Plot):
         sifFile.close()
         ncsvFile.close()
         ecsvFile.close()
+        
+        # prompt user
+        if self.prompt:
+            self.ws("Workflow DAG has been created.\n"
+                    "Please use Cytoscape to visualize following data:\n"
+                    "  %s/workflow.sif\n"
+                    "  %s/workflow-nodes.csv\n"
+                    "  %s/workflow-edges.csv\n"
+                    % (self.datadir, self.datadir, self.datadir))
