@@ -340,7 +340,7 @@ static void proctab_destroy(hash_table_t hashtable)
 
 static void proctab_insert(hash_table_t hashtable, int pid)
 {
-	if (pid == 1)	/* process 1 is init [2] */
+	if (pid <= 1)	/* process 1 is init [2] */
 		return;
 
 	int *pidp = &pid;
