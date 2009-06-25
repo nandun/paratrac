@@ -1,2 +1,11 @@
 INSTALL
-	* Add paratrac's parent directory to PYTHONPATH
+ * Install fuse, glib, python, matplotlib, scipy. E.g.
+   # apt-get install libfuse-dev libglib2.0-dev python matplotlib scipy 
+ * Checkout paratrac source. E.g.
+   $ svn co http://paratrac.googlecode.com/svn/trunk/ paratrac
+
+DOCS
+ * Please visit http://code.google.com/p/paratrac/w/
+
+BUG REPORT
+ * Please go to http://code.google.com/p/paratrac/issues/

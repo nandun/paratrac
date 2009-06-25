@@ -78,6 +78,7 @@ def parse_argv(argv):
     parser.add_option("-p", "--plot", action="append", type="string",
         dest="plotlist", metavar="TYPE", default=[],
         help="plot types:\n"
+			 "  all: plot all following statistics\n"
              "  sysc_count: system call count\n"
              "  sysc_elapsed: elapsed time of system call\n"
              "  sysc_elapsed_sum: sum of elapsed time of system call\n"
@@ -94,6 +95,15 @@ def parse_argv(argv):
     parser.add_option("--plot-log-y", action="store", type="float",
         dest="plotlogy", metavar="NUM", default=1,
         help="set y axis to log scale")
+    
+    parser.add_option("--plot-non-interactive", action="store_false",
+        dest="plotinteractive", default=True,
+        help="non-interactive plotting (default: off)")
+	
+    parser.add_option("--plot-format", action="store", type="choice", 
+        dest="plotformat", default=None,
+        choices=["png","ps","pdf","svg"],
+        help="plot format (default: png)")
 
     # Debug and user interaction
     parser.add_option("-v", "--verbosity", action="store", type="choice",
@@ -115,7 +125,7 @@ def parse_argv(argv):
 	
     if opts.version:
         print_version()
-    
+
     # Tracking options
     if opts.track is not None:
         opts.mountpoint = os.path.abspath(opts.track)

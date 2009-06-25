@@ -340,7 +340,7 @@ static void proctab_destroy(hash_table_t hashtable)
 
 static void proctab_insert(hash_table_t hashtable, int pid)
 {
-	if (pid <= 1)	/* process 1 is init [2] */
+	if (pid == 0)	/* process 1 is init [2] */
 		return;
 
 	int *pidp = &pid;
@@ -582,6 +582,8 @@ static void log_init(struct ftrac *ft)
 		fprintf(stderr, "open file %s failed\n", file);
 		exit(1);
 	}
+	/* insert the first record for root process */
+	fprintf(ft->procmap, "0:0:system init\n");
 
 	/* file table */
 	res = filetab_init(&ft->filetab);

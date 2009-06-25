@@ -26,28 +26,43 @@ __all__ = ["Plot", "FUSETracPlot"]
 import os
 import sys
 import numpy
-import matplotlib.pyplot
-import matplotlib.widgets
 
 from common import *
 from track import FUSETRAC_SYSCALL
 from data import *
 
 class Plot():
-    def __init__(self, dbfile):
+    def __init__(self, dbfile, opts=None):
         self.datadir = os.path.dirname(dbfile)
         self.db = None
+
+        self.plotinteractive=True
+        self.plotformat=None
+        
+        _Plot_restrict = ["plotinteractive", "plotformat"]
+        update_opts_kw(self, _Plot_restrict, opts, None)
+        
+        import matplotlib
+        if not self.plotinteractive:
+            if self.plotformat is None:
+                self.plotformat = "png"
+            if self.plotformat == "png":
+                matplotlib.use("agg")
+            else:
+                matplotlib.use(self.plotformat)
+        import matplotlib.pyplot
+        import matplotlib.widgets
+        
         self.pyplot = matplotlib.pyplot
         self.widgets = matplotlib.widgets
         
-        self.usewin = False
         self.prompt = True
         
-        self.ws = sys.stdout.write
-        self.es = sys.stderr.write
+        self.ws = ws
+        self.es = es
     
     def show(self):
-        if self.usewin:
+        if self.plotinteractive:
             self.pyplot.show()
 
     def format_data_float(self, data):
@@ -55,52 +70,51 @@ class Plot():
 
 class FUSETracPlot(Plot):
     def __init__(self, dbfile, opts=None):
-        Plot.__init__(self, dbfile)
+        Plot.__init__(self, dbfile, opts)
         self.db = FUSETracDB(dbfile)
         self.plotlist = []
         self.plotseries = []
         self.plotlogy = 1
 
-        if opts is not None:
-            for k, v in opts.__dict__.items():
-                if self.__dict__.has_key(k):
-                    self.__dict__[k] = v
+        _FUSETracPlot_restrict = ["plotlist", "plotseries", "plotlogy"]
+        update_opts_kw(self, _FUSETracPlot_restrict, opts, None)
 
     def plot(self):
         # System call
-        if "sysc_count" in self.plotlist:
-            self.usewin = True
+        if "sysc_count" in self.plotlist or "all" in self.plotlist:
             self.plot_syscall_count()
-        if "sysc_elapsed" in self.plotlist:
-            self.usewin = True
+        if "sysc_elapsed" in self.plotlist or "all" in self.plotlist:
             self.plot_syscall_elapsed()
-        if "sysc_elapsed_sum" in self.plotlist:
-            self.usewin = True
+        if "sysc_elapsed_sum" in self.plotlist or "all" in self.plotlist:
             self.plot_syscall_elapsed_sum()
         
         # I/O
-        if "io_offset" in self.plotlist:
-            self.usewin = True
+        if "io_offset" in self.plotlist or "all" in self.plotlist:
             self.plot_io_offset()
-        if "io_length" in self.plotlist:
-            self.usewin = True
+        if "io_length" in self.plotlist or "all" in self.plotlist:
             self.plot_io_length()
-        if "io_bytes" in self.plotlist:
-            self.usewin = True
+        if "io_bytes" in self.plotlist or "all" in self.plotlist:
             self.plot_io_bytes()
 
-        if "proctree" in self.plotlist:
+        if "proctree" in self.plotlist or "all" in self.plotlist:
             self.plot_proctree()
-        if "workflow" in self.plotlist:
+        if "workflow" in self.plotlist or "all" in self.plotlist:
             self.plot_workflow()
     
     # Plot routines for each type of figure
+    def plot_save_figure(self, fig, file):
+        output = "%s/%s.%s" % (self.datadir, file, self.plotformat)
+        fig.savefig(output)
+        self.ws("Plot has been saved to %s\n" % output)
+
     def plot_syscall_count(self):
         if self.plotseries == []:
             syscalls = FUSETRAC_SYSCALL
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
         
+        self.ws("Plotting system call count statistics... ")
+
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
         ax.set_title("System Calls Counts")
@@ -128,12 +142,19 @@ class FUSETracPlot(Plot):
         legends.draw_frame(False)
         for t in legends.get_texts():
             t.set_size("small")
+        
+        self.ws("Done!\n")
+        
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "sysc_count")
 
     def plot_syscall_elapsed(self):
         if self.plotseries == []:
             syscalls = FUSETRAC_SYSCALL
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
+        
+        self.ws("Plotting system call elapsed time statistics... ")
         
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
@@ -163,12 +184,19 @@ class FUSETracPlot(Plot):
         legends.draw_frame(False)
         for t in legends.get_texts():
             t.set_size("small")
+        
+        self.ws("Done!\n")
+        
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "sysc_elapsed")
 
     def plot_syscall_elapsed_sum(self):
         if self.plotseries == []:
             syscalls = FUSETRAC_SYSCALL
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
+        
+        self.ws("Plotting system call elapsed time summation ... ")
         
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
@@ -200,12 +228,19 @@ class FUSETracPlot(Plot):
         legends.draw_frame(False)
         for t in legends.get_texts():
             t.set_size("small")
+        
+        self.ws("Done!\n")
+        
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "sysc_elapsed_sum")
     
     def plot_io_offset(self):
         if self.plotseries == []:
             syscalls = ["read", "write"]
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        self.ws("Plotting I/O offset statistics ... ")
         
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
@@ -237,11 +272,18 @@ class FUSETracPlot(Plot):
         for t in legends.get_texts():
             t.set_size("small")
         
+        self.ws("Done!\n")
+
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "io_offset")
+        
     def plot_io_length(self):
         if self.plotseries == []:
             syscalls = ["read", "write"]
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        self.ws("Plotting I/O length statistics ... ")
         
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
@@ -272,12 +314,19 @@ class FUSETracPlot(Plot):
         legends.draw_frame(False)
         for t in legends.get_texts():
             t.set_size("small")
+        
+        self.ws("Done!\n")
+
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "io_lenght")
     
     def plot_io_bytes(self):
         if self.plotseries == []:
             syscalls = ["read", "write"]
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
+        
+        self.ws("Plotting I/O bytes statistics ... ")
         
         fig = self.pyplot.figure()
         ax = fig.add_subplot(1,1,1)
@@ -310,35 +359,41 @@ class FUSETracPlot(Plot):
         legends.draw_frame(False)
         for t in legends.get_texts():
             t.set_size("small")
+        
+        self.ws("Done!\n")
+        
+        if self.plotformat is not None:
+            self.plot_save_figure(fig, "io_bytes")
 
-    # workflow plot using Graphviz
+    # workflow plot using Cytoscape
     def plot_proctree(self):
-        gvFile = open("%s/proctree.gv" % self.datadir, "wb")
+        self.ws("Generating process tree ... ")
+        
         sifFile = open("%s/proctree.sif" % self.datadir, "wb")
-        noaFile = open("%s/proctree.noa" % self.datadir, "wb")
+        ncsvFile = open("%s/proctree-nodes.csv" % self.datadir, "wb")
         
-        gvFile.write("digraph proctree {\n")
+        ncsvFile.write("id,type,info\n")
+
         for pid, ppid, cmdline in self.db.procmap_fetchall():
-            gvFile.write("\t%d->%d;\n" % (ppid, pid))
             sifFile.write("%d call %d\n" % (ppid, pid))
-            noaFile.write("%d = %s\n" % (pid, cmdline))
-        gvFile.write("}\n")
+            ncsvFile.write("%d,proc,%s\n" % (pid, cmdline))
         
-        gvFile.close()
         sifFile.close()
-        noaFile.close()
+        ncsvFile.close()
         
+        self.ws("Done!\n")
+
         # prompt user
         if self.prompt:
             self.ws("Process tree graph has been created.\n"
-                    "Please use Graphviz to visualize:\n"
-                    "  %s/proctree.gv\n"
-                    "Please use Cytoscape to visualize:\n"
+                    "Please use Cytoscape to visualize following data:\n"
                     "  %s/proctree.sif\n"
-                    "  %s/proctree.noa\n"
-                    % (self.datadir, self.datadir, self.datadir))
+                    "  %s/proctree-nodes.csv\n"
+                    % (self.datadir, self.datadir))
 
     def plot_workflow(self):
+        self.ws("Generating workflow ... ")
+        
         NEW = [SYSCALL[i] for i in ["mknod", "mkdir", "creat"]]
         DEL = [SYSCALL[i] for i in ["unlink", "rmdir"]]
         IN = [SYSCALL["read"]]
@@ -409,6 +464,8 @@ class FUSETracPlot(Plot):
         sifFile.close()
         ncsvFile.close()
         ecsvFile.close()
+        
+        self.ws("Done!\n")
         
         # prompt user
         if self.prompt:
