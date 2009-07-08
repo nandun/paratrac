@@ -55,6 +55,7 @@ class Plot():
         
         self.pyplot = matplotlib.pyplot
         self.widgets = matplotlib.widgets
+        self.requirepyplot = False
         
         self.prompt = True
         
@@ -62,7 +63,7 @@ class Plot():
         self.es = es
     
     def show(self):
-        if self.plotinteractive:
+        if self.plotinteractive and self.requirepyplot:
             self.pyplot.show()
 
     def format_data_float(self, data):
@@ -113,6 +114,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
         
+        self.requirepyplot = True
         self.ws("Plotting system call count statistics... ")
 
         fig = self.pyplot.figure()
@@ -154,6 +156,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
         
+        self.requirepyplot = True
         self.ws("Plotting system call elapsed time statistics... ")
         
         fig = self.pyplot.figure()
@@ -196,6 +199,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, FUSETRAC_SYSCALL])
         
+        self.requirepyplot = True
         self.ws("Plotting system call elapsed time summation ... ")
         
         fig = self.pyplot.figure()
@@ -240,6 +244,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
         
+        self.requirepyplot = True
         self.ws("Plotting I/O offset statistics ... ")
         
         fig = self.pyplot.figure()
@@ -283,6 +288,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
         
+        self.requirepyplot = True
         self.ws("Plotting I/O length statistics ... ")
         
         fig = self.pyplot.figure()
@@ -326,6 +332,7 @@ class FUSETracPlot(Plot):
         else:
             syscalls = list_intersect([self.plotseries, ["read", "write"]])
         
+        self.requirepyplot = True
         self.ws("Plotting I/O bytes statistics ... ")
         
         fig = self.pyplot.figure()
@@ -456,9 +463,9 @@ class FUSETracPlot(Plot):
             sifFile.write("p%d fork p%d\n" % (ppid, pid))
 
         # output node attributes
-        for item in self.db.procmap_fetchall("pid,cmdline"):
+        for item in self.db.proc_fetchall("pid,cmdline"):
             ncsvFile.write("p%d,proc,%s\n" % item)
-        for item in self.db.filemap_fetchall():
+        for item in self.db.file_fetchall():
             ncsvFile.write("f%d,file,%s\n" % item)
 
         sifFile.close()

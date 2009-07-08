@@ -1,3 +1,6 @@
+2009-07-08 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Add process accounting by using netlink
+
 2009-06-22 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 	* process tree graph (graphviz and cytoscape)
 	* workflow graph (cytoscape)

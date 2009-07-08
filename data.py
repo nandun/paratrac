@@ -53,21 +53,22 @@ class FUSETracDB(Database):
         cur.execute("CREATE TABLE IF NOT EXISTS env "
             "(item TEXT, value TEXT)")
 
-        # table: tracelog
-        cur.execute("DROP TABLE IF EXISTS tracelog")
-        cur.execute("CREATE TABLE IF NOT EXISTS tracelog "
+        # table: syscall
+        cur.execute("DROP TABLE IF EXISTS syscall")
+        cur.execute("CREATE TABLE IF NOT EXISTS syscall "
             "(stamp DOUBLE, pid INTEGER, sysc INTEGER, fid INTEGER, "
             "res INTEGER, elapsed DOUBLE, aux1 INTEGER, aux2 INTEGER)")
 
-        # table: filemap
-        cur.execute("DROP TABLE IF EXISTS filemap")
-        cur.execute("CREATE TABLE IF NOT EXISTS filemap"
+        # table: file
+        cur.execute("DROP TABLE IF EXISTS file")
+        cur.execute("CREATE TABLE IF NOT EXISTS file"
             "(fid INTEGER, path TEXT)")
         
-        # table: procmap
-        cur.execute("DROP TABLE IF EXISTS procmap")
-        cur.execute("CREATE TABLE IF NOT EXISTS procmap "
-            "(pid INTEGER, ppid INTEGER, cmdline TEXT)")
+        # table: proc
+        cur.execute("DROP TABLE IF EXISTS proc")
+        cur.execute("CREATE TABLE IF NOT EXISTS proc "
+            "(pid INTEGER, ppid INTEGER, live INTEGER, res INTEGER, "
+            "btime FLOAT, elapsed FLOAT, cmdline TEXT)")
 
     def import_data(self, datadir=None):
         if datadir is None:
@@ -77,6 +78,7 @@ class FUSETracDB(Database):
         
         # import runtime environment data
         envFile = open("%s/env.log" % datadir)
+        assert envFile.readline().startswith("#")
         for line in envFile.readlines():
             cur.execute("INSERT INTO env VALUES (?,?)", 
                 line.strip().split(":", 1))
@@ -84,70 +86,82 @@ class FUSETracDB(Database):
         
         # import trace log data
         traceFile = open("%s/trace.log" % datadir)
+        assert traceFile.readline().startswith("#")
         for line in traceFile.readlines():
-            cur.execute("INSERT INTO tracelog VALUES (?,?,?,?,?,?,?,?)",
+            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?)",
                 line.strip().split(","))
         traceFile.close()
 
         # import file map data
         filemapFile = open("%s/file.map" % datadir)
+        assert filemapFile.readline().startswith("#")
         for line in filemapFile.readlines():
-            cur.execute("INSERT INTO filemap VALUES (?,?)",
+            cur.execute("INSERT INTO file VALUES (?,?)",
                 line.strip().split(":", 1))
         filemapFile.close()
 
-        # import proc map data
+        # import proc info data
         procmapFile = open("%s/proc.map" % datadir)
+        assert procmapFile.readline().startswith("#")
+        procmap = {}
         for line in procmapFile.readlines():
-            cur.execute("INSERT INTO procmap VALUES (?,?,?)",
-                line.strip().split(":", 2))
+            pid, cmdline = line.strip().split(":", 1)
+            procmap[pid] = cmdline
         procmapFile.close()
+
+        procinfoFile = open("%s/proc.info" % datadir)
+        assert procinfoFile.readline().startswith("#")
+        for line in procinfoFile.readlines():
+            pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)
+            cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
+                (pid, ppid, live, res, btime, elapsed, procmap[pid]))
+        procinfoFile.close()
     
     # trace routines
     def select_sysc(self, sysc, fields):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM tracelog WHERE sysc=?" % fields, (sysc,))
+        cur.execute("SELECT %s FROM syscall WHERE sysc=?" % fields, (sysc,))
         return cur.fetchall()
 
     def select_sysc_group_by_file(self, sysc, fields):
         cur = self.cur
-        cur.execute("SELECT %s FROM tracelog WHERE sysc=? GROUP BY fid" 
+        cur.execute("SELECT %s FROM syscall WHERE sysc=? GROUP BY fid" 
             % fields, (sysc,))
         return cur.fetchall()
     
     def select_file(self, fid, fields):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM tracelog WHERE fid=?" % fields, (fid,))
+        cur.execute("SELECT %s FROM syscall WHERE fid=?" % fields, (fid,))
         return cur.fetchall()
 
     def select_sysc_on_fid(self, fid, sysc, fields="*"):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM tracelog WHERE fid=? AND sysc=?" %
+        cur.execute("SELECT %s FROM syscall WHERE fid=? AND sysc=?" %
             fields, (fid, sysc))
 
     def get_first_stamp(self):
         cur = self.db.cursor()
-        cur.execute("SELECT stamp FROM tracelog")
+        cur.execute("SELECT stamp FROM syscall")
         return cur.fetchone()[0]
     
     # proc map routines
-    def procmap_fetchall(self, fields="*"):
+    def proc_fetchall(self, fields="*"):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM procmap" % fields)
+        cur.execute("SELECT %s FROM proc" % fields)
         return cur.fetchall()
 
-    def procmap_select_pid(self, pid, fields):
+    def proc_select_pid(self, pid, fields):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM procmap WHERE pid=?" % fields, (pid,))
+        cur.execute("SELECT %s FROM proc WHERE pid=?" % fields, (pid,))
         return cur.fetchall()
 
-    def procmap_get_ppid(self, pid):
+    def proc_get_ppid(self, pid):
         cur = self.cur
-        cur.execute("SELECT ppid FROM procmap WHERE pid=?", (pid,))
+        cur.execute("SELECT ppid FROM proc WHERE pid=?", (pid,))
         return cur.fetchone()[0]
     
     # file map routines
-    def filemap_fetchall(self, fields="*"):
+    def file_fetchall(self, fields="*"):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM filemap" % fields)
+        cur.execute("SELECT %s FROM file" % fields)
         return cur.fetchall()
