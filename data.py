@@ -22,9 +22,11 @@
 
 __all__ = ["Database", "FUSETracDB"]
 
+import sys
 import os
 import sqlite3
 import csv
+import numpy
 
 class Database:
     def __init__(self, dbfile):
@@ -104,8 +106,14 @@ class FUSETracDB(Database):
         procmapFile = open("%s/proc.map" % datadir)
         assert procmapFile.readline().startswith("#")
         procmap = {}
+        lineno = 0
         for line in procmapFile.readlines():
-            pid, cmdline = line.strip().split(":", 1)
+            lineno += 1
+            try:
+                pid, cmdline = line.strip().split(":", 1)
+            except ValueError:
+                sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
+                continue
             procmap[pid] = cmdline
         procmapFile.close()
 
@@ -123,7 +131,7 @@ class FUSETracDB(Database):
         cur.execute("SELECT %s FROM syscall WHERE sysc=?" % fields, (sysc,))
         return cur.fetchall()
 
-    def select_sysc_group_by_file(self, sysc, fields):
+    def sysc_select_group_by_file(self, sysc, fields="*"):
         cur = self.cur
         cur.execute("SELECT %s FROM syscall WHERE sysc=? GROUP BY fid" 
             % fields, (sysc,))
@@ -134,15 +142,49 @@ class FUSETracDB(Database):
         cur.execute("SELECT %s FROM syscall WHERE fid=?" % fields, (fid,))
         return cur.fetchall()
 
-    def select_sysc_on_fid(self, fid, sysc, fields="*"):
+    def select_sysc_on_fid(self, fid, sysc, fields="*", fetchall=True):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM syscall WHERE fid=? AND sysc=?" %
             fields, (fid, sysc))
+        if fetchall: return cur.fetchall()
+        else: return cur.fetchone()
 
     def get_first_stamp(self):
         cur = self.db.cursor()
         cur.execute("SELECT stamp FROM syscall")
         return cur.fetchone()[0]
+    
+    # syscall routines
+    def sysc_count(self, sysc):
+        cur = self.db.cursor()
+        cur.execute("SELECT COUNT(*) FROM syscall WHERE sysc=?", (sysc,))
+        return cur.fetchone()[0]
+    
+    def sysc_sum(self, sysc, field):
+        cur = self.db.cursor()
+        cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=?"
+        "GROUP BY sysc" % field, (sysc,))
+        res = cur.fetchone()
+        if res is None: # No such system call
+            return 0
+        else:
+            return res[0]
+    
+    def sysc_avg(self, sysc, field):
+        cur = self.db.cursor()
+        cur.execute("SELECT AVG(%s) FROM syscall WHERE sysc=?"
+        "GROUP BY sysc" % field, (sysc,))
+        res = cur.fetchone()
+        if res is None: # No such system call
+            return 0
+        else:
+            return res[0]
+    
+    def sysc_stddev(self, sysc, field):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM syscall WHERE sysc=?" % field, (sysc,))
+        vlist = map(lambda x:x[0], cur.fetchall())
+        return numpy.std(vlist)
     
     # proc map routines
     def proc_fetchall(self, fields="*"):

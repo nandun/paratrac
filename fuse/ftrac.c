@@ -1863,8 +1863,11 @@ static int ftrac_read(const char *path, char *buf, size_t size, off_t offset,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
+	/* should not log size in arguments, but actual read bytes */
+	size_t bytes = res == -1 ? 0 : res;
 	sc_log_io(&ftrac.fs.read, SYSC_FS_READ, &start, &end, 
-		fuse_get_context()->pid, res, path, size, offset);
+		fuse_get_context()->pid, res, path, bytes, offset);
+		
 #endif
 
 	if (res == -1)
@@ -1893,8 +1896,10 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
+	/* should not log size in arguments, but actual write bytes */
+	size_t bytes = res == -1 ? 0 : res;
 	sc_log_io(&ftrac.fs.write, SYSC_FS_WRITE, &start, &end, 
-		fuse_get_context()->pid, res, path, size, offset);
+		fuse_get_context()->pid, res, path, bytes, offset);
 #endif
 
 	if (res == -1)

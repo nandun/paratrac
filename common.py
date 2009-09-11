@@ -150,6 +150,12 @@ def list_difference(listoflist):
         diff = diff.difference(set(l))
     return list(set(diff))
 
+def list_remove(fromlist, listofwithout):
+    origset = set(fromlist)
+    for l in listofwithout:
+        origset = origset - set(l)
+    return list(origset)
+
 # class init utility
 def update_opts_kw(obj, restrict, opts, kw):
     """

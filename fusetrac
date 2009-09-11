@@ -75,6 +75,14 @@ def parse_argv(argv):
         dest="data", metavar="PATH", default=None, 
         help="path or directory of trace data")
     
+    parser.add_option("-r", "--report", action="append", type="string",
+        dest="reportlist", metavar="TYPE", default=[],
+        help="report types:\n"
+			 "  all: plot all following statistics\n"
+             "  sysc_count: system call statistics\n"
+             "  sysc_elapsed: system call latency statistics\n"
+             "  io_summary: I/O summary\n")
+    
     parser.add_option("-p", "--plot", action="append", type="string",
         dest="plotlist", metavar="TYPE", default=[],
         help="plot types:\n"
@@ -139,7 +147,7 @@ def parse_argv(argv):
     # Database options
 
     # Plot options
-    if opts.plotlist != []:
+    if opts.plotlist != [] or opts.reportlist != []:
         # check data directory
         if opts.data is None:
             sys.stderr.write("error: data path or directory required\n")
@@ -172,6 +180,12 @@ def main():
         database.create_tables()
         database.import_data()
         return 0
+
+    # Report
+    if opts.reportlist:
+        from report import FUSETracReport
+        rpt = FUSETracReport(opts.data, opts)
+        rpt.report()
 
     # Plot
     if opts.plotlist:

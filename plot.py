@@ -379,11 +379,14 @@ class FUSETracPlot(Plot):
         sifFile = open("%s/proctree.sif" % self.datadir, "wb")
         ncsvFile = open("%s/proctree-nodes.csv" % self.datadir, "wb")
         
-        ncsvFile.write("id,type,info\n")
+        ncsvFile.write("id,type,live,res,elapsed,info\n")
 
-        for pid, ppid, cmdline in self.db.procmap_fetchall():
+        for pid, ppid, live, res, elapsed, cmdline in \
+            self.db.proc_fetchall("pid,ppid,live,res,elapsed,cmdline"):
+            if live: elapsed = 0 # remove live process, daemons
             sifFile.write("%d call %d\n" % (ppid, pid))
-            ncsvFile.write("%d,proc,%s\n" % (pid, cmdline))
+            ncsvFile.write("%d,proc,%d,%d,%f,%s\n" 
+                % (pid, live, res, elapsed, cmdline))
         
         sifFile.close()
         ncsvFile.close()
@@ -439,7 +442,7 @@ class FUSETracPlot(Plot):
                     pids.append(pid)
 
         for sysc in IN:
-            log = self.db.select_sysc_group_by_file(sysc, "pid,fid,SUM(aux1)")
+            log = self.db.sysc_select_group_by_file(sysc, "pid,fid,SUM(aux1)")
             if log is not None:
                 syscname = SYSCALL[sysc]
                 for pid, fid, bytes in log:
@@ -449,7 +452,7 @@ class FUSETracPlot(Plot):
                     pids.append(pid)
         
         for sysc in OUT:
-            log = self.db.select_sysc_group_by_file(sysc, "pid,fid,SUM(aux1)")
+            log = self.db.sysc_select_group_by_file(sysc, "pid,fid,SUM(aux1)")
             if log is not None:
                 syscname = SYSCALL[sysc]
                 for pid, fid, bytes in log:
@@ -459,7 +462,7 @@ class FUSETracPlot(Plot):
                     pids.append(pid)
         
         for pid in pids:
-            ppid = self.db.procmap_get_ppid(pid)
+            ppid = self.db.proc_get_ppid(pid)
             sifFile.write("p%d fork p%d\n" % (ppid, pid))
 
         # output node attributes
