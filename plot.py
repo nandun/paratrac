@@ -132,7 +132,7 @@ class FUSETracPlot(Plot):
             stamp = []
             count = []
             sum = 0
-            for s in self.db.select_sysc(sc, "stamp"):
+            for s in self.db.sysc_select(sc, "stamp"):
                 sum += 1
                 stamp.append(s[0] - first_stamp)
                 count.append(sum)
@@ -176,7 +176,7 @@ class FUSETracPlot(Plot):
         for sc in sysc_num:
             stamp = []
             elapsed = []
-            for s,e in self.db.select_sysc(sc, "stamp,elapsed"):
+            for s,e in self.db.sysc_select(sc, "stamp,elapsed"):
                 stamp.append(s - first_stamp)
                 elapsed.append(e)
             lines.append(ax.plot(stamp, elapsed, linewidth=0.3))
@@ -220,7 +220,7 @@ class FUSETracPlot(Plot):
             stamp = []
             esum = []
             sum = 0
-            for s,e in self.db.select_sysc(sc, "stamp,elapsed"):
+            for s,e in self.db.sysc_select(sc, "stamp,elapsed"):
                 sum += e
                 stamp.append(s - first_stamp)
                 esum.append(sum)
@@ -265,7 +265,7 @@ class FUSETracPlot(Plot):
         for sc in sysc_num:
             stamp = []
             offset = []
-            for s,o in self.db.select_sysc(sc, "stamp,aux2"):
+            for s,o in self.db.sysc_select(sc, "stamp,aux2"):
                 stamp.append(s - first_stamp)
                 offset.append(o)
             lines.append(ax.plot(stamp, offset, linewidth=0.3))
@@ -309,7 +309,7 @@ class FUSETracPlot(Plot):
         for sc in sysc_num:
             stamp = []
             length = []
-            for s,l in self.db.select_sysc(sc, "stamp,aux1"):
+            for s,l in self.db.sysc_select(sc, "stamp,aux1"):
                 stamp.append(s - first_stamp)
                 length.append(l)
             lines.append(ax.plot(stamp, length, linewidth=0.3))
@@ -354,7 +354,7 @@ class FUSETracPlot(Plot):
             stamp = []
             bytes = []
             sum = 0
-            for s,l in self.db.select_sysc(sc, "stamp,aux1"):
+            for s,l in self.db.sysc_select(sc, "stamp,aux1"):
                 sum += l 
                 stamp.append(s - first_stamp)
                 bytes.append(sum)
@@ -418,14 +418,14 @@ class FUSETracPlot(Plot):
         
         pids = []
         for sysc in NEW:
-            log = self.db.select_sysc(sysc, "pid,fid")
+            log = self.db.sysc_select(sysc, "pid,fid")
             if log is not None:
                 for pid, fid in log:
                     sifFile.write("p%d %s f%d\n" % (pid, SYSCALL[sysc], fid))
                     pids.append(pid)
 
         for sysc in DEL:
-            log = self.db.select_sysc(sysc, "pid,fid")
+            log = self.db.sysc_select(sysc, "pid,fid")
             if log is not None:
                 syscname = SYSCALL[sysc]
                 for pid, fid in log:
@@ -433,7 +433,7 @@ class FUSETracPlot(Plot):
                     pids.append(pid)
 
         for sysc in TRAN:
-            log = self.db.select_sysc(sysc, "pid,fid,aux1")
+            log = self.db.sysc_select(sysc, "pid,fid,aux1")
             if log is not None:
                 syscname = SYSCALL[sysc]
                 for pid, fromfid, tofid in log:

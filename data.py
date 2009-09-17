@@ -126,7 +126,7 @@ class FUSETracDB(Database):
         procinfoFile.close()
     
     # trace routines
-    def select_sysc(self, sysc, fields):
+    def sysc_select(self, sysc, fields="*"):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM syscall WHERE sysc=?" % fields, (sysc,))
         return cur.fetchall()
@@ -134,6 +134,12 @@ class FUSETracDB(Database):
     def sysc_select_group_by_file(self, sysc, fields="*"):
         cur = self.cur
         cur.execute("SELECT %s FROM syscall WHERE sysc=? GROUP BY fid" 
+            % fields, (sysc,))
+        return cur.fetchall()
+    
+    def sysc_select_group_by_proc(self, sysc, fields="*"):
+        cur = self.cur
+        cur.execute("SELECT %s FROM syscall WHERE sysc=? GROUP BY pid" 
             % fields, (sysc,))
         return cur.fetchall()
     
@@ -185,11 +191,24 @@ class FUSETracDB(Database):
         cur.execute("SELECT %s FROM syscall WHERE sysc=?" % field, (sysc,))
         vlist = map(lambda x:x[0], cur.fetchall())
         return numpy.std(vlist)
+
+    def sysc_sum_by_proc(self, sysc, field, pid=-1):
+        cur = self.db.cursor()
+        if pid == -1:
+            cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=?"
+            "GROUP BY pid" % field, (sysc,))
+        else:
+            cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=? AND pid=?"
+            "GROUP BY pid" % field, (sysc, pid))
+        return cur.fetchall()
     
     # proc map routines
-    def proc_fetchall(self, fields="*"):
+    def proc_fetchall(self, fields="*", nolive=False):
         cur = self.db.cursor()
-        cur.execute("SELECT %s FROM proc" % fields)
+        if nolive:
+            cur.execute("SELECT %s FROM proc WHERE live=0" % fields)
+        else:
+            cur.execute("SELECT %s FROM proc" % fields)
         return cur.fetchall()
 
     def proc_select_pid(self, pid, fields):
@@ -201,7 +220,7 @@ class FUSETracDB(Database):
         cur = self.cur
         cur.execute("SELECT ppid FROM proc WHERE pid=?", (pid,))
         return cur.fetchone()[0]
-    
+
     # file map routines
     def file_fetchall(self, fields="*"):
         cur = self.db.cursor()

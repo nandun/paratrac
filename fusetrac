@@ -81,7 +81,16 @@ def parse_argv(argv):
 			 "  all: plot all following statistics\n"
              "  sysc_count: system call statistics\n"
              "  sysc_elapsed: system call latency statistics\n"
-             "  io_summary: I/O summary\n")
+             "  sysc_elapsed_cdf: cdf of system call latency\n"
+             "  io_summary: I/O summary\n"
+             "  io_length: I/O summary\n"
+             "  proc_io_summary: process I/O summary\n"
+             "  proc_io_volume_cdf: cdf of process I/O volume\n"
+             "  proc_life_cdf: cdf of process I/O volume\n")
+    
+    parser.add_option("--rs", "--report-series", action="append", 
+        type="string", dest="reportseries", metavar="SERIES", default=[],
+        help="report series")
     
     parser.add_option("-p", "--plot", action="append", type="string",
         dest="plotlist", metavar="TYPE", default=[],
