@@ -117,7 +117,7 @@ class FUSETracDB(Database):
             procmap[pid] = cmdline
         procmapFile.close()
 
-        procinfoFile = open("%s/proc.info" % datadir)
+        procinfoFile = open("%s/proc.stat" % datadir)
         assert procinfoFile.readline().startswith("#")
         for line in procinfoFile.readlines():
             pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)

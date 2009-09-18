@@ -249,7 +249,7 @@ struct ftrac {
 	FILE *env;
 	FILE *log;
 	FILE *procmap;
-	FILE *procinfo;
+	FILE *procstat;
 	FILE *filemap;
 
 	/* process accounting */
@@ -641,13 +641,13 @@ static void log_init(struct ftrac *ft)
 
 	/* process accounting information */
 	memset(file, 0, MAX_FILENAME);
-	snprintf(file, MAX_FILENAME, "%s/proc.info", ft->logdir);
-	ft->procinfo = fopen(file, "wb");
-	if (ft->procinfo == NULL) {
+	snprintf(file, MAX_FILENAME, "%s/proc.stat", ft->logdir);
+	ft->procstat = fopen(file, "wb");
+	if (ft->procstat == NULL) {
 		fprintf(stderr, "open file %s failed\n", file);
 		exit(1);
 	}
-	fprintf(ft->procinfo, "#pid,ppid,live,res,btime,elapsed\n");
+	fprintf(ft->procstat, "#pid,ppid,live,res,btime,elapsed\n");
 
 	/* file table */
 	res = filetab_init(&ft->filetab);
@@ -704,7 +704,7 @@ static void log_destroy(struct ftrac *ft)
 	proctab_destroy(&ft->proctab);
 	filetab_destroy(&ft->filetab);
 	fclose(ft->procmap);
-	fclose(ft->procinfo);
+	fclose(ft->procstat);
 	fclose(ft->filemap);
 	fclose(ft->log);
 	fclose(ft->env);
@@ -859,7 +859,7 @@ static int ctrl_flush(int sockfd)
 
 	fflush(ftrac.log);
 	fflush(ftrac.procmap);
-	fflush(ftrac.procinfo);
+	fflush(ftrac.procstat);
 	fflush(ftrac.filemap);
 
     res = send(sockfd, sendbuf, strlen(sendbuf), 0);
@@ -1001,7 +1001,7 @@ static void taskstats_log(pid_t tid, struct taskstats *st, int liveness)
 		st->ac_btime, st->ac_etime);
 	
 	/* task/process still running */
-	fprintf(ftrac.procinfo, "%d,%d,%d,%d,%d,%llu\n", st->ac_pid, st->ac_ppid,
+	fprintf(ftrac.procstat, "%d,%d,%d,%d,%d,%llu\n", st->ac_pid, st->ac_ppid,
 		liveness, st->ac_exitcode, st->ac_btime, st->ac_etime);
 	
 	if (!liveness) {
@@ -2226,7 +2226,7 @@ static void usage(const char *progname)
 "    -h   --help            print help\n"
 "    -V   --version         print version\n"
 "    -o sessiondir=PATH     session directory\n"
-"    -o logdir=PATH        	log directory\n"
+"    -o logdir=PATH         log directory\n"
 "    -o logbufsize=PATH     log buffer size\n"
 "    -o notify_pid=PID      process to notify on entering fuse loop\n"
 "    -o ftrac_debug         print debug information\n"
@@ -2390,7 +2390,9 @@ int main(int argc, char * argv[])
 			ftrac.username, ftrac_string_hash(ftrac.mountpoint));
 	else {
 		char logdir[PATH_MAX];
-		if (realpath(ftrac.logdir, logdir) == NULL) {
+		struct stat stbuf;
+		if (realpath(ftrac.logdir, logdir) == NULL &&
+			stat(ftrac.logdir, &stbuf) == 0) {
 			fprintf(stderr, "bad log directory %s\n", logdir);
 			exit(1);
 		}
@@ -2399,7 +2401,7 @@ int main(int argc, char * argv[])
 	}
     res = mkdir(ftrac.logdir, S_IRUSR | S_IWUSR | S_IXUSR);
     if (res == -1 && errno != EEXIST) {
-		fprintf(stderr, "failed to create directory %s, %s\n", 
+		fprintf(stderr, "failed to create log directory %s, %s\n", 
 				ftrac.logdir, strerror(errno));
 		return -1;
     }
