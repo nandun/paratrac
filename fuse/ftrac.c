@@ -403,7 +403,7 @@ static void proctab_insert(hash_table_t hashtable, pid_t pid)
 		pthread_mutex_lock(&hashtable->lock);
 		g_hash_table_insert(hashtable->table, pidp, liveness);
 		pthread_mutex_unlock(&hashtable->lock);
-		fprintf(ftrac.procmap, "%d:%s\n", pid, cmdline);
+		fprintf(ftrac.procmap, "%d:%d:%s\n", pid, ppid, cmdline);
 		g_free(cmdline);
 
 		/* recursively insert parent process to process table

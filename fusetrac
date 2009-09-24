@@ -103,7 +103,9 @@ def parse_argv(argv):
              "  io_length: request bytes in one I/O call\n"
              "  io_bytes: total bytes in I/O\n"
              "  proctree: process tree in workflow\n"
-             "  workflow: workflow DAG\n")
+             "  proctree_dot: process tree in workflow\n"
+             "  workflow: workflow DAG\n"
+			 "  workflow_dot: workflow in dot language\n")
     
     parser.add_option("--ps", "--plot-series", action="append", type="string",
         dest="plotseries", metavar="SERIES", default=[],

@@ -31,6 +31,9 @@ from common import *
 from track import FUSETRAC_SYSCALL
 from data import *
 
+COLOR_SERIES_1 = ["seagreen2","seashell2","skyblue2","slategray2",
+    "tan1", "thistle1", "tomato1","turquoise","violet", "yello2"]
+
 class Plot():
     def __init__(self, dbfile, opts=None):
         self.datadir = os.path.dirname(dbfile)
@@ -99,8 +102,12 @@ class FUSETracPlot(Plot):
 
         if "proctree" in self.plotlist or "all" in self.plotlist:
             self.plot_proctree()
+        if "proctree_dot" in self.plotlist or "all" in self.plotlist:
+            self.plot_proctree_dot()
         if "workflow" in self.plotlist or "all" in self.plotlist:
             self.plot_workflow()
+        if "workflow_dot" in self.plotlist or "all" in self.plotlist:
+            self.plot_workflow_dot()
     
     # Plot routines for each type of figure
     def plot_save_figure(self, fig, file):
@@ -400,6 +407,65 @@ class FUSETracPlot(Plot):
                     "  %s/proctree.sif\n"
                     "  %s/proctree-nodes.csv\n"
                     % (self.datadir, self.datadir))
+    
+    def plot_proctree_dot(self, restrict=[],exclude=[],fillcolor=False):
+        #restrict = ["mProjectPP","mDiffFit","mConcatFit","mBgModel",
+        #    "mBackground", "mImgtbl","mAdd","mShrink","mJPEG"]
+        restrict = ["mDiffFit","mDiff","mFitplane"]
+        #exclude = ["bash", "gnome", "python"]
+        #exclude = ["make","gnome","python","bash"]
+        self.ws("Generating process tree in dot language ...")
+        
+        colors = COLOR_SERIES_1
+
+        procs_all = self.db.proc_fetchall("pid,ppid,live,elapsed,cmdline")
+        procs_kept = []
+        if len(restrict) > 0:
+            for pid, _, _, _, cmdline in procs_all:
+                for p in restrict:
+                    if cmdline.find(p) != -1:
+                        procs_kept.append(pid)
+        else:
+            procs_kept = map(lambda x:x[0], procs_all)
+        
+        procs_exclude = []
+        if len(exclude) > 0:
+            for pid, _, _, _, cmdline in procs_all:
+                for p in exclude:
+                    if cmdline.find(p) != -1:
+                        procs_exclude.append(pid)
+        procs_kept.sort()
+        procs_exclude.append(1)
+        procs_kept = list_remove(procs_kept, [procs_exclude])
+       
+        dotFile = open("%s/proctree.dot" % self.datadir, "wb")
+        dotFile.write("digraph proctree {\n")
+        procs_added = []
+        for pid, ppid, live, elapsed, cmdline in procs_all:
+            if pid in procs_kept and ppid in procs_kept:
+                if live: elapsed = 0 # remove live process, daemons
+                dotFile.write("p%d->p%d;\n" % (ppid, pid))
+                procs_added.append(pid)
+                procs_added.append(ppid)
+            elif pid in procs_kept: procs_added.append(pid)
+            elif ppid in procs_kept: procs_added.append(ppid)
+            self.ws(".") # progress dots
+
+        for pid, _, live, elapsed, cmdline in procs_all:
+            if pid in procs_added:
+                if live: elapsed = 0
+                num, unit = smart_second(elapsed)
+                dotFile.write("p%d [label=\"%s|%.2f%s\"];\n" 
+                    % (pid, os.path.basename(cmdline.split(" ", 1)[0]),
+                       num, unit))
+        
+        dotFile.write("}\n")
+        self.ws("Done!\n")
+
+        # prompt user
+        if self.prompt:
+            self.ws("Process tree dot flile has been created in"
+                    " %s/proctree.dot\n" % self.datadir)
 
     def plot_workflow(self):
         self.ws("Generating workflow ... ")
@@ -485,3 +551,212 @@ class FUSETracPlot(Plot):
                     "  %s/workflow-nodes.csv\n"
                     "  %s/workflow-edges.csv\n"
                     % (self.datadir, self.datadir, self.datadir))
+
+    def plot_workflow_dot(self, restrict=[], exclude=[], hasLabel=True,
+        fillColor=True):
+        colors = COLOR_SERIES_1
+        #exclude = ["bash", "gnome", "python"]
+        #exclude = ["make"]
+        
+        self.ws("Generating workflow in dot language...")
+        
+        restrict = ["mProjectPP","mDiffFit","mConcatFit","mBgModel",
+            "mBackground", "mImgtbl","mAdd","mShrink","mJPEG"]
+#        restrict = ["mProjectPP"]
+#        restrict = ["mAdd", "mShrink", "mJPEG"]
+        
+        procs_all = self.db.proc_fetchall("pid,ppid,live,elapsed,cmdline")
+        procs_name = {}
+        for pid, _, _, _, cmdline in procs_all:
+            procs_name[pid] = os.path.basename(cmdline.split(" ", 1)[0])
+        procs_kept = []
+        procs_parent = {}
+        procs_color = {}
+        if len(restrict) > 0:
+            for pid, _, _, _, cmdline in procs_all:
+                if fillColor: color_index = 0
+                for p in restrict:
+                    if cmdline.find(p) != -1: 
+                        procs_kept.append(pid)
+                        if fillColor: procs_color[pid] = colors[color_index]
+                    if fillColor:
+                        color_index += 1
+                        color_index = color_index % len(colors)
+
+            for pid, ppid, _, _, _ in procs_all:
+                if pid not in procs_kept:
+                    # recursively check if its ancestor in keep list
+                    while ppid != 0:
+                        if ppid in procs_kept:
+                            procs_parent[pid] = ppid
+                            break
+                        ppid = self.db.proc_get_ppid(ppid)
+        else:
+            procs_kept = map(lambda x:x[0], procs_all)
+            if fillColor:
+                for pid in procs_kept: procs_color[pid] = "gray"
+        
+        procs_exclude = []
+        if len(exclude) > 0:
+            for pid, _, _, _, cmdline in procs_all:
+                for p in exclude:
+                    if cmdline.find(p) != -1: procs_exclude.append(pid)
+        
+        procs_kept.sort()
+        procs_exclude.append(1)
+        procs_kept = list_remove(procs_kept, [procs_exclude])
+
+        # Get proc info
+        sc_creat = SYSCALL["creat"]
+        sc_open = SYSCALL["open"]
+        sc_close = SYSCALL["close"]
+        sc_read = SYSCALL["read"]
+        sc_write = SYSCALL["write"]
+        
+        file_shape = "box"
+        proc_shape = "ellipse"
+        dotFile = open("%s/workflow.dot" % self.datadir, "wb")
+        dotFile.write("digraph workflow {\n")
+        procs_added = []
+        for fid, path in self.db.file_fetchall():
+            fid_used = False
+            c_procs = map(lambda x:x[0],
+                self.db.sysc_select_group_by_proc_on_fid(sc_creat, fid, "pid"))
+            o_procs = map(lambda x:x[0],
+                self.db.sysc_select_group_by_proc_on_fid(sc_open, fid, "pid"))
+            cl_procs = map(lambda x:x[0],
+                self.db.sysc_select_group_by_proc_on_fid(sc_close, fid, "pid"))
+            r_procs = map(lambda x:x[0], 
+                self.db.sysc_select_group_by_proc_on_fid(sc_read, fid, "pid"))
+            w_procs = map(lambda x:x[0], 
+                self.db.sysc_select_group_by_proc_on_fid(sc_write, fid, "pid"))
+
+            # read procs
+            for pid in r_procs:
+                if pid in procs_kept:
+                    if hasLabel:
+                        bytes = self.db.sysc_sum_by_proc_on_fid(sc_read, 
+                            fid, "aux1", pid)
+                        rvol, dunit = smart_datasize(bytes)
+                        relapsed = self.db.sysc_sum_by_proc_on_fid(sc_read, 
+                            fid, "elapsed", pid)
+                        thpt, tunit = smart_datasize(bytes/relapsed)
+                        dotFile.write("f%d->p%d [arrowhead=inv,"
+                            "label=\"%.2f%s|%.2f%s/sec\"]\n" 
+                            % (fid, pid, rvol, dunit, thpt, tunit))
+                    else:
+                        dotFile.write("f%d->p%d [arrowhead=inv]\n"%(fid, pid))
+                    attr = ["style=filled","shape=%s" % proc_shape]
+                    if fillColor:
+                        attr.append("color=%s" % procs_color[pid])
+                    if hasLabel:
+                        attr.append("label=\"%s\"" % procs_name[pid])
+                    dotFile.write("p%d [%s];\n" % (pid, ",".join(attr)))
+                    procs_added.append(pid)
+                    fid_used = True
+                elif pid in procs_parent.keys():
+                    ppid = procs_parent[pid]
+                    dotFile.write("f%d->p%d [arrowhead=inv]\n" % (fid, ppid))
+                    if fillColor:
+                        dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
+                            % (ppid, proc_shape, procs_color[ppid]))
+                    else:
+                        dotFile.write("p%d [style=filled,shape=%s];\n"
+                            % (ppid, proc_shape))
+                    fid_used = True
+            
+            # write procs
+            for pid in w_procs:
+                if pid in procs_kept:
+                    if hasLabel:
+                        bytes = self.db.sysc_sum_by_proc_on_fid(sc_write, 
+                            fid, "aux1", pid)
+                        wvol, dunit = smart_datasize(bytes)
+                        relapsed = self.db.sysc_sum_by_proc_on_fid(sc_write, 
+                            fid, "elapsed", pid)
+                        thpt, tunit = smart_datasize(bytes/relapsed)
+                        dotFile.write("p%d->f%d [arrowhead=normal,"
+                            "label=\"%.2f%s|%.2f%s/sec\"]\n" 
+                            % (pid, fid, wvol, dunit, thpt, tunit))
+                    else:
+                        dotFile.write("p%d->f%d [arrowhead=normal]\n"
+                            %(pid, fid))
+                    attr = ["style=filled","shape=%s" % proc_shape]
+                    if fillColor:
+                        attr.append("color=%s" % procs_color[pid])
+                    if hasLabel:
+                        attr.append("label=\"%s\"" % procs_name[pid])
+                    dotFile.write("p%d [%s];\n" % (pid, ",".join(attr)))
+                    procs_added.append(pid)
+                    fid_used = True
+                elif pid in procs_parent.keys():
+                    ppid = procs_parent[pid]
+                    dotFile.write("p%d->f%d [arrowhead=inv]\n" % (ppid, fid))
+                    if fillColor:
+                        dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
+                            % (ppid, proc_shape, procs_color[ppid]))
+                    else:
+                        dotFile.write("p%d [style=filled,shape=%s];\n"
+                            % (ppid, proc_shape))
+                    fid_used = True
+            
+            # open only
+            for pid in list_remove(o_procs, [procs_added]):
+                if pid in procs_kept:
+                    dotFile.write(
+                        "f%d->p%d [sytle=doted,arrowhead=oinv];\n" 
+                        % (fid, pid))
+                    attr = ["style=filled","shape=%s" % proc_shape]
+                    if fillColor:
+                        attr.append("color=%s" % procs_color[pid])
+                    if hasLabel:
+                        attr.append("label=\"%s\"" % procs_name[pid])
+                    dotFile.write("p%d [%s];\n" % (pid, ",".join(attr)))
+                    procs_added.append(pid)
+                    fid_used = True
+                elif pid in procs_parent.keys():
+                    ppid = procs_parent[pid]
+                    dotFile.write("f%d->p%d [sytle=doted,arrowhead=oinv];\n" 
+                        % (fid, ppid))
+                    if fillColor:
+                        dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
+                            % (ppid, proc_shape, procs_color[ppid]))
+                    else:
+                        dotFile.write("p%d [style=filled,shape=%s];\n"
+                            % (ppid, proc_shape))
+                    fid_used = True
+            
+            # create procs
+            for pid in list_remove(c_procs, [procs_added]):
+                if pid in procs_kept:
+                    dotFile.write("p%d->f%d [arrowhead=onormal];" % (pid, fid))
+                    attr = ["style=filled","shape=%s" % proc_shape]
+                    if fillColor:
+                        attr.append("color=%s" % procs_color[pid])
+                    if hasLabel:
+                        attr.append("label=\"%s\"" % procs_name[pid])
+                    dotFile.write("p%d [%s];\n" % (pid, ",".join(attr)))
+                    procs_added.append(pid)
+                    fid_used = True
+                elif pid in procs_parent.keys():
+                    ppid = procs_parent[pid]
+                    dotFile.write("p%d->f%d [arrowhead=onormal]\n" 
+                        % (ppid, fid))
+                    if fillColor:
+                        dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
+                            % (ppid, proc_shape, procs_color[ppid]))
+                    else:
+                        dotFile.write("p%d [style=filled,shape=%s];\n"
+                            % (ppid, proc_shape))
+                    fid_used = True
+            
+            if fid_used:
+                attr = ["shape=%s" % file_shape]
+                if hasLabel:
+                    attr.append("label=\"%s\"" % os.path.basename(path))
+                dotFile.write("f%d [%s];\n" % (fid, ",".join(attr)))
+            self.ws(".") # progress dots
+                
+        dotFile.write("}\n")
+        dotFile.close()
+        self.ws("Done!\n")

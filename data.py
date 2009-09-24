@@ -105,24 +105,28 @@ class FUSETracDB(Database):
         # import proc info data
         procmapFile = open("%s/proc.map" % datadir)
         assert procmapFile.readline().startswith("#")
+        assert procmapFile.readline().startswith("0:system init")
         procmap = {}
         lineno = 0
         for line in procmapFile.readlines():
             lineno += 1
             try:
-                pid, cmdline = line.strip().split(":", 1)
+                pid, ppid, cmdline = line.strip().split(":", 2)
             except ValueError:
                 sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
                 continue
-            procmap[pid] = cmdline
+            procmap[pid] = (ppid, cmdline)
         procmapFile.close()
 
         procinfoFile = open("%s/proc.stat" % datadir)
         assert procinfoFile.readline().startswith("#")
         for line in procinfoFile.readlines():
             pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)
+            # must use ppid in procmap
+            # taskstat consider ppid of process as 1, since its parent dead
+            real_ppid, cmdline = procmap[pid]
             cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
-                (pid, ppid, live, res, btime, elapsed, procmap[pid]))
+                (pid, real_ppid, live, res, btime, elapsed, cmdline))
         procinfoFile.close()
     
     # trace routines
@@ -143,6 +147,12 @@ class FUSETracDB(Database):
             % fields, (sysc,))
         return cur.fetchall()
     
+    def sysc_select_group_by_proc_on_fid(self, sysc, fid, fields="*"):
+        cur = self.cur
+        cur.execute("SELECT %s FROM syscall WHERE sysc=? AND fid=?"
+            "GROUP BY pid" % fields, (sysc,fid))
+        return cur.fetchall()
+
     def select_file(self, fid, fields):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM syscall WHERE fid=?" % fields, (fid,))
@@ -201,6 +211,14 @@ class FUSETracDB(Database):
             cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=? AND pid=?"
             "GROUP BY pid" % field, (sysc, pid))
         return cur.fetchall()
+    
+    def sysc_sum_by_proc_on_fid(self, sysc, fid, field, pid):
+        cur = self.db.cursor()
+        cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=? and fid=?"
+            "GROUP BY pid" % field, (sysc, fid))
+        res = cur.fetchone()
+        if res: return res[0]
+        else: return 0
     
     # proc map routines
     def proc_fetchall(self, fields="*", nolive=False):

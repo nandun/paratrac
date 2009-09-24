@@ -31,6 +31,13 @@ MB = 1048576
 GB = 1073741824
 TB = 1099511627776
 
+# seconds constants in bytes
+# start from usec
+MSEC = 1000
+SEC  = 1000000
+MIN  = 60000000
+HOUR = 3600000000
+
 # Socket constants
 SOCKET_BUFSIZE = 4096
 
@@ -117,6 +124,19 @@ def smart_datasize(size):
     if size < TB:
         return (size/GB, "GB")
     return (size/TB, "TB")
+
+def smart_second(usec):
+    """ given a time in usecs, return a tuple (num, unit) """
+    usec = float(usec)
+    if usec < MSEC:
+        return (usec, "usec")
+    if usec < SEC:
+        return (usec/MSEC, "msec")
+    if usec < MIN:
+        return (usec/SEC, "sec")
+    if usec < HOUR:
+        return (usec/MIN, "min")
+    return (usec/HOUR, "hour")
 
 def string_hash(str):
     hash = 0
