@@ -32,7 +32,7 @@ from track import FUSETRAC_SYSCALL
 from data import *
 
 COLOR_SERIES_1 = ["seagreen2","seashell2","skyblue2","slategray2",
-    "tan1", "thistle1", "tomato1","turquoise","violet", "yello2"]
+    "tan1", "thistle1", "tomato1","turquoise","violet", "yellow2"]
 
 class Plot():
     def __init__(self, dbfile, opts=None):
@@ -455,7 +455,7 @@ class FUSETracPlot(Plot):
             if pid in procs_added:
                 if live: elapsed = 0
                 num, unit = smart_second(elapsed)
-                dotFile.write("p%d [label=\"%s|%.2f%s\"];\n" 
+                dotFile.write("p%d [label=\"%s@%.2f%s\"];\n" 
                     % (pid, os.path.basename(cmdline.split(" ", 1)[0]),
                        num, unit))
         
@@ -561,7 +561,9 @@ class FUSETracPlot(Plot):
         self.ws("Generating workflow in dot language...")
         
         restrict = ["mProjectPP","mDiffFit","mConcatFit","mBgModel",
+        #    "mDiff","mFitplane",
             "mBackground", "mImgtbl","mAdd","mShrink","mJPEG"]
+#        restrict = ["mDiffFit","mDiff","mFitplane"]
 #        restrict = ["mProjectPP"]
 #        restrict = ["mAdd", "mShrink", "mJPEG"]
         
@@ -578,7 +580,8 @@ class FUSETracPlot(Plot):
                 for p in restrict:
                     if cmdline.find(p) != -1: 
                         procs_kept.append(pid)
-                        if fillColor: procs_color[pid] = colors[color_index]
+                        if fillColor and pid not in procs_color.keys(): 
+                            procs_color[pid] = colors[color_index]
                     if fillColor:
                         color_index += 1
                         color_index = color_index % len(colors)
@@ -642,7 +645,7 @@ class FUSETracPlot(Plot):
                             fid, "elapsed", pid)
                         thpt, tunit = smart_datasize(bytes/relapsed)
                         dotFile.write("f%d->p%d [arrowhead=inv,"
-                            "label=\"%.2f%s|%.2f%s/sec\"]\n" 
+                            "label=\"%.2f%s@%.2f%s/sec\"]\n" 
                             % (fid, pid, rvol, dunit, thpt, tunit))
                     else:
                         dotFile.write("f%d->p%d [arrowhead=inv]\n"%(fid, pid))
@@ -656,7 +659,8 @@ class FUSETracPlot(Plot):
                     fid_used = True
                 elif pid in procs_parent.keys():
                     ppid = procs_parent[pid]
-                    dotFile.write("f%d->p%d [arrowhead=inv]\n" % (fid, ppid))
+                    dotFile.write("f%d->p%d [arrowhead=halfinv]\n" 
+                        % (fid, ppid))
                     if fillColor:
                         dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
                             % (ppid, proc_shape, procs_color[ppid]))
@@ -676,7 +680,7 @@ class FUSETracPlot(Plot):
                             fid, "elapsed", pid)
                         thpt, tunit = smart_datasize(bytes/relapsed)
                         dotFile.write("p%d->f%d [arrowhead=normal,"
-                            "label=\"%.2f%s|%.2f%s/sec\"]\n" 
+                            "label=\"%.2f%s@%.2f%s/sec\"]\n" 
                             % (pid, fid, wvol, dunit, thpt, tunit))
                     else:
                         dotFile.write("p%d->f%d [arrowhead=normal]\n"
@@ -691,7 +695,8 @@ class FUSETracPlot(Plot):
                     fid_used = True
                 elif pid in procs_parent.keys():
                     ppid = procs_parent[pid]
-                    dotFile.write("p%d->f%d [arrowhead=inv]\n" % (ppid, fid))
+                    dotFile.write("p%d->f%d [arrowhead=halfnormal]\n" 
+                        % (ppid, fid))
                     if fillColor:
                         dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
                             % (ppid, proc_shape, procs_color[ppid]))
@@ -716,7 +721,7 @@ class FUSETracPlot(Plot):
                     fid_used = True
                 elif pid in procs_parent.keys():
                     ppid = procs_parent[pid]
-                    dotFile.write("f%d->p%d [sytle=doted,arrowhead=oinv];\n" 
+                    dotFile.write("f%d->p%d[sytle=doted,arrowhead=olinv];\n"
                         % (fid, ppid))
                     if fillColor:
                         dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
@@ -740,7 +745,7 @@ class FUSETracPlot(Plot):
                     fid_used = True
                 elif pid in procs_parent.keys():
                     ppid = procs_parent[pid]
-                    dotFile.write("p%d->f%d [arrowhead=onormal]\n" 
+                    dotFile.write("p%d->f%d [arrowhead=olnormal]\n" 
                         % (ppid, fid))
                     if fillColor:
                         dotFile.write("p%d [style=filled,shape=%s,color=%s];\n"
@@ -756,6 +761,13 @@ class FUSETracPlot(Plot):
                     attr.append("label=\"%s\"" % os.path.basename(path))
                 dotFile.write("f%d [%s];\n" % (fid, ",".join(attr)))
             self.ws(".") # progress dots
+        
+        proc_lines = []
+        for pid in procs_added:
+            ppid = self.db.proc_get_ppid(pid)
+            if ppid in procs_added and (ppid, pid) not in proc_lines:
+                dotFile.write("p%d->p%d [style=dotted];\n" % (ppid, pid))
+                proc_lines.append((ppid,pid))
                 
         dotFile.write("}\n")
         dotFile.close()
