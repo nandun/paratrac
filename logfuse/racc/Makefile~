@@ -1,0 +1,57 @@
+	 ifeq ((1, 1) ,(1, 1)) 
+	hoge = hoge_ok 
+all2: all
+	echo all2
+endif
+	a=b
+	hoge = moge
+
+momomo = momomo_=2
+
+
+define hogedef
+
+$(momomo)
+
+a=b
+endef
+
+
+
+$(momomo) =momomo_3
+
+#shell echo hoge
+a=b
+var=var2
+var2=var_ok
+cont=ll echo cont_ok
+	all=:
+all:
+	$(hogedef)
+#	ifeq (1,1)
+	echo findstring1 $(findstring b, a,,,,, b c)
+	echo findstring2 $(findstring     b , a,,,,, b c)
+	echo findstring3 $(findstring   	  b , a,,,,, b c)
+	echo findstring3 $(findstring   	  b	, a,,,,, b c)
+	echo findstring4 $( findstring   b, a,,,,, b c)
+
+	echo hoge $(hoge)
+	echo shell cont $(she$(cont))
+	echo var $($(var))	
+	echo hogedef $((hogedef hogedef2)
+	echo hogedef2 $(hogedef2)
+  
+	echo '$$(momomo)'  $(momomo)
+	echo '$$($$(momomo))'  $($(momomo))
+	echo '$$(momomo_)'  $(momomo_)
+	echo $(MAKEFILE_LIST)
+	echo $(PWD)
+	echo shell return $(shell echo '"a\nb\nc"')
+
+
+ #a=b all
+
+ 
+	echo "=" $(hoge) homomo
+#	echo hoge
+

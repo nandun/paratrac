@@ -1,0 +1,48 @@
+24: juman -i \# < ../../data/data0/%.org > %.jmn
+27: ../../modules/cf/scripts/parse-comp.sh -s ../../modules/cf/scripts %.jmn
+30: tac %.knp | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/feature2bnst.perl | tac | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe.perl --rn --compound 1 | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe-filter.perl > %.data
+33: cat *.data > all.data
+37: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe-filter.perl all.data | sort -k 2 > all.data.orig
+40: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/delete-sid.perl all.data.orig | uniq -c > all.data.sid
+41: mkdir -p out
+42: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/split-pa-uniq2.perl -sid -min 1000 -base out/all < all.data.sid
+43: for f in `ls all`; do basename $f .data.sid; done > all.list
+48: make -f mk_formatted cf.knpdict
+53: -find -name "*.jmn" -exec rm {} \;
+54: -find -name "*.log" -exec rm {} \;
+55: -find -name "*.data" -exec rm {} \;
+56: -find -name "*.knp" -exec rm {} \;
+57: -find -name "*.jmn0" -exec rm {} \;
+58: -find -name "*.knp0" -exec rm {} \;
+59: -find -name "*.log0" -exec rm {} \;
+60: -find -name "*.data0" -exec rm {} \;
+61: -rm all.data all.data.orig all.data.sid all.list
+62: -rm cf.formatted cf.knpdict
+63: -rm out -rf
+12: cat out/*.formatted | grep -v "<格フレーム>" > cf.formatted
+13: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/formatted2knpdict.perl --sm2ex --rn --thesaurus BGH cf.formatted > cf.knpdict
+20: sort -k 2,2 -k 1,1nr < %.data.sid > %.data.basic
+23: mkdir -p %
+24: cp %.data.basic %
+25: ../../modules/cf/scripts/cut-data-basic.sh %/
+26: make -n -f ../../modules/cf/Makefile PERL='perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0' base=%/  basedir=../../modules/cf pmdir=../../modules/kawahara-pm/perl thesaurus=cf formatted |lv
+27: cp -f %/.formatted %.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-simple-tools-for-data.perl --num --rest --rank 0 --pruning-ratio 0 --cutoff-ratio 0 %/.data.basic > %/.data.basic.rest
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-clustering.perl --num --thesaurus cf  --comment `date +%Y%m%d` --rank 0 --pruning-ratio 0 %/.data.basic  > %/.1st.formatted 2> %/.1st.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-cf-clustering.perl --thesaurus cf --external %/.1st.formatted > %/-cross.formatted 2> %/-cross.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/wa-assign.perl --semantic --num --basic --thesaurus cf  --data %/-cross-wa.formatted %/-cross.formatted < %/.data.basic > %/-cross-wa.result 2> %/-cross-wa.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/soto-analysis.perl --num --basic --thesaurus cf --soutai ../../modules/cf/data/SOUTAIMEISHI.dic  --data %/-cross-wa-soto.formatted %/-cross-wa.formatted < %/.data.basic > %/-cross-wa-soto.result 2> %/-cross-wa-soto.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-distribute-rest.perl --debug --num --thesaurus cf --nomake %/-cross-wa-soto.formatted %/.data.basic.rest > %/-cross-wa-soto-others_tmp.formatted 2> %/-cross-wa-soto-others_tmp.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-delete-redundant-cases.perl  %/-cross-wa-soto-others_tmp.formatted > %/-cross-wa-soto-delwa.formatted
+0: rm -f %/-cross-wa-soto-others_tmp.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-check-subsumption.perl --thesaurus cf %/-cross-wa-soto-delwa.formatted > %/-cross-wa-soto-delwa-sub_tmp.formatted
+0: mv -f %/-cross-wa-soto-delwa-sub_tmp.formatted %/-cross-wa-soto-delwa-sub.formatted
+0: cp %/-cross-wa-soto-delwa-sub.formatted %/-cross-wa-soto-delwa-sub-refined.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-or-frame.perl --rn %/-cross-wa-soto-delwa-sub-refined.formatted > %/-cross-wa-soto-delwa-sub-refined-or.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/formatted-sort.perl %/-cross-wa-soto-delwa-sub-refined-or.formatted > %/-cross-wa-soto-delwa-sub-refined-or-sorted.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/case-similarity.perl --thesaurus cf %/-cross-wa-soto-delwa-sub-refined-or-sorted.formatted > %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs.formatted 2> %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs.log
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-give-extra-sm.perl --thesaurus cf %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs.formatted > %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/cf-post-process.perl --debug %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm.formatted > %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm-postprocessed.formatted 2> %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm-postprocessed.log
+0: ln -sf `echo %/ | sed "s/.*\///"`-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm-postprocessed.formatted %/.formatted
+0: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/calc-cf-similarity.perl --thesaurus cf %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm-postprocessed.formatted > %/.cfsim.dat
+0: rm %/-cross-wa-soto-delwa-sub-refined-or.formatted %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm.formatted %/-cross-wa.formatted %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs-sm-postprocessed.formatted %/.1st.formatted %/-cross-wa-soto-delwa-sub.formatted %/-cross-wa-soto-delwa-sub-refined.formatted %/-cross-wa-soto-delwa.formatted %/-cross-wa-soto.formatted %/-cross.formatted %/-cross-wa-soto-delwa-sub-refined-or-sorted.formatted %/-cross-wa-soto-delwa-sub-refined-or-sorted-cs.formatted

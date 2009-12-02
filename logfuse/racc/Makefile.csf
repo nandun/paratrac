@@ -1,0 +1,63 @@
+# $Id: Makefile,v 1.93 2009/04/29 14:56:49 ryohei Exp $
+
+INPUT:=data0
+
+TOP:=../..
+MODULES:=$(TOP)/modules
+INPUT_DIR:=$(TOP)/data/$(INPUT)
+OUTPUT_DIR:=out/$(INPUT)
+INPUT_FILES:=$(wildcard $(INPUT_DIR)/*)
+ALL_TARGETS:=$(patsubst $(INPUT_DIR)/%.org, %.data, $(wildcard $(INPUT_DIR)/*) )
+
+
+scriptsdir =$(MODULES)/cf/scripts
+kpdir = $(MODULES)/kawahara-pm/perl
+basedir = $(MODULES)/cf
+
+PERL:= perl -I$(scriptsdir) -I$(kpdir) -I$(MODULES)/share/perl/5.10.0 -I$(MODULES)/lib/perl/5.10.0
+
+min:= 1000
+
+# テキストから述語項構造を抽出
+
+%.jmn: $(INPUT_DIR)/%.org
+	juman -i \# < $< > $@
+
+%.knp: %.jmn
+	$(scriptsdir)/parse-comp.sh -s $(scriptsdir) $<
+
+%.data: %.knp
+	tac $< | $(PERL) $(scriptsdir)/feature2bnst.perl | tac | $(PERL) $(scriptsdir)/make-caseframe.perl --rn --compound 1 | $(PERL) $(scriptsdir)/make-caseframe-filter.perl > $@
+
+all.data : $(ALL_TARGETS)
+	cat *.data > $@
+
+# 全体をソート、用言単位に分割
+all.data.orig: all.data
+	$(PERL) $(scriptsdir)/make-caseframe-filter.perl $< | sort -k 2 > $@
+
+all.list: all.data.orig
+	$(PERL) $(scriptsdir)/delete-sid.perl $< | uniq -c > all.data.sid
+	mkdir -p out
+	$(PERL) $(scriptsdir)/split-pa-uniq2.perl -sid -min $(min) -base out/all < all.data.sid
+	for f in `ls all`; do basename $$f .data.sid; done > $@
+
+
+# 用言ごとに格フレームを構築
+all: all.list
+	$(MAKE) -f mk_formatted cf.knpdict
+
+
+
+clean:
+	-find -name "*.jmn" -exec rm {} \;
+	-find -name "*.log" -exec rm {} \;
+	-find -name "*.data" -exec rm {} \;
+	-find -name "*.knp" -exec rm {} \;
+	-find -name "*.jmn0" -exec rm {} \;
+	-find -name "*.knp0" -exec rm {} \;
+	-find -name "*.log0" -exec rm {} \;
+	-find -name "*.data0" -exec rm {} \;
+	-rm all.data all.data.orig all.data.sid all.list
+	-rm cf.formatted cf.knpdict
+	-rm out -rf

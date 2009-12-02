@@ -1,0 +1,5 @@
+MAKEFILE_LIST = Makefile.montage
+MAKE = make
+INPUT = data0
+INPUT_DIR = ../../data/data0
+PWD = /home/shibata/gmprof/racc

@@ -1,0 +1,18 @@
+DATADIR=../../data
+INPUT=$(DATADIR)/data0
+BINDIR=../../modules
+OUTDIR=output
+PROBS=$(wildcard $(INPUT)/*.prob)
+RESULTS=$(PROBS:.prob=.result)
+
+
+all: total_result
+
+total_result: $(RESULTS)
+	cat $(RESULTS) | wc > total_result
+
+.SUFFIXES: .result .prob
+
+.prob.result:
+	$(BINDIR)/dach.sh $(INPUT)/$(shell head -1 $<) $(INPUT)/$(shell tail -1 $<) > $@.tmp
+	mv $@.tmp $@

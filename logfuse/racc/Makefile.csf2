@@ -1,0 +1,28 @@
+TOP:=../..
+MODULES:=$(TOP)/modules
+scriptsdir =$(MODULES)/cf
+kpdir = $(MODULES)/kawahara-pm/perl
+basedir = $(MODULES)/cf
+PERL:= perl -I$(scriptsdir)/scripts -I$(kpdir) -I$(MODULES)/share/perl/5.10.0 -I$(MODULES)/lib/perl/5.10.0
+
+ALL_TARGETS:=$(patsubst out/%.data.sid, out/%.formatted, $(wildcard out/*) )
+
+
+cf.knpdict: $(ALL_TARGETS)
+	cat out/*.formatted | grep -v "<格フレーム>" > cf.formatted
+	$(PERL) $(basedir)/scripts/formatted2knpdict.perl --sm2ex --rn --thesaurus BGH cf.formatted > cf.knpdict
+
+# 用言ごとに格フレームを構築
+name = $(basename $(basename $<))
+basename = `basename $(name)`
+
+%.data.basic: %.data.sid
+	sort -k 2,2 -k 1,1nr < $< > $@
+
+%.formatted: %.data.basic
+	mkdir -p $(name)
+	cp $< $(name)
+	$(scriptsdir)/scripts/cut-data-basic.sh $(name)/$(basename)
+	$(MAKE) -f $(scriptsdir)/Makefile PERL='$(PERL)' base=$(name)/$(basename) $(shell ruby grep_suru.rb $<) basedir=$(basedir) pmdir=$(kpdir) thesaurus=cf formatted
+	cp -f $(name)/$(basename).formatted $(name).formatted
+

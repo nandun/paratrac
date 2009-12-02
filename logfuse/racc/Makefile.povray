@@ -1,0 +1,20 @@
+# currently data3 only
+INPUT=data3
+
+TOP:=../..
+INPUT_DIR:=$(TOP)/data/$(INPUT)
+OUTPUT_DIR:=out/$(INPUT)
+POVRAY:=$(TOP)/modules/install/bin/povray
+
+SCENES_DIR:=$(INPUT_DIR)/povray-3.6/scenes
+POVs:=$(wildcard $(SCENES_DIR)/*/*.pov $(SCENES_DIR)/*/*/*.pov $(SCENES_DIR)/*/*/*.pov $(SCENES_DIR)/*/*/*/*.pov)
+TARGETS:=$(subst $(SCENES_DIR),$(OUTPUT_DIR),$(subst .pov,.png,$(POVs)))
+
+all : $(TARGETS)
+
+$(OUTPUT_DIR)/%.png : $(SCENES_DIR)/%.pov
+	mkdir -p $(dir $@)
+	$(POVRAY) -Tpng +I$< +O$@ +w800 +h600 2> $(OUTPUT_DIR)/$*.log 
+
+clean :
+	rm -rf $(OUTPUT_DIR)

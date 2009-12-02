@@ -1,0 +1,15 @@
+MODULES = ../../modules
+kpdir = ../../modules/kawahara-pm/perl
+MAKEFILE_LIST = Makefile.csf
+INPUT = data0
+MAKE = make
+OUTPUT_DIR = out/data0
+scriptsdir = ../../modules/cf/scripts
+basedir = ../../modules/cf
+INPUT_FILES = 
+INPUT_DIR = ../../data/data0
+min = 1000
+PWD = /home/shibata/racc
+PERL = perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0
+ALL_TARGETS = 
+TOP = ../..

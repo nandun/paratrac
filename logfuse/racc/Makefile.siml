@@ -1,0 +1,65 @@
+#
+# 以下のような directory 構成
+#
+# +-- sachica/
+# +-- sentence/*.txt
+# +-- parallel
+#       +--- Makefile
+#       +--- mkbins.perl
+#
+# parallel/ で make を走らせる (gxpc make -j result)
+#
+# - bins という directory は make 前に消しておく
+# - N は 全部のファイルを何個の 束にするか. タスク数は N * (N + 1) / 2 になる
+#
+# (shell === ...) の === は gxpc の make にここはローカルで実行せよというおまじない
+# 普通の make で走らせるときは消す必要がある
+#
+
+
+SACHICA=../../modules/sachica/sachica16
+INPUT=data0
+SENTENCES='../../data/$(INPUT)/x*'
+LOCALDIR=/tmp
+BINS=bins
+OUTDIR=output
+
+MINIMUM_LENGTH=70
+SACHICA_ARGS=pclVZdJ -l $(MINIMUM_LENGTH)
+N=30
+SUBSTR_LENGTH=20
+HAMMING_DISTANCE=1
+NICE_VALUE=-19
+
+MKBINS=./mkbins.perl
+# MKBINS=./mkbins.py
+ADDNUM=../sachica/addnum.pl
+UNTRANSFILENUM=../sachica/untransfilenum.pl
+
+nothing :
+
+clean :
+	rm -rf $(OUTDIR)/*
+	rm -rf bins
+	rm -rf log*
+
+all : result
+
+result : $(BINS)
+	$(MAKE) $(addprefix x$@.,$(shell === seq 0 $(shell === expr $(N) - 1)))
+
+xresult.% : 
+	$(MAKE) $(addprefix x$@.,$(shell === seq $(shell === expr $* + 1) $(shell === expr $(N) - 1)))
+	nice $(NICE_VALUE) $(SACHICA) $(SACHICA_ARGS) $(BINS)/bin.$* $(SUBSTR_LENGTH) $(HAMMING_DISTANCE) - 2> log.$* | bzip2 > $(LOCALDIR)/$@.bz2 && mv -f $(LOCALDIR)/$@.bz2 $(OUTDIR)/$@.bz2
+
+xxresult.% : 
+	nice $(NICE_VALUE) $(SACHICA) $(SACHICA_ARGS) -c -1 -2 $(BINS)/bin.$(shell === echo $* | cut -f2 -d'.') $(BINS)/bin.$(shell === echo $* | cut -f1 -d'.') $(SUBSTR_LENGTH) $(HAMMING_DISTANCE) - 2> log.$* | bzip2 > $(LOCALDIR)/$@.bz2 && mv -f $(LOCALDIR)/$@.bz2 $(OUTDIR)/$@.bz2
+
+$(BINS)/sub_sentences.% : $(BINS)
+	cat $(shell === echo $* | awk '{ print BIN "." $$1, BIN "." $$2 }' FS=. BIN=$(BINS)/bin) > $@ || rm -f $@
+
+$(BINS)/sub.table.% : $(BINS)
+	cat $(BINS)/bin.table.$(shell === echo $* | cut -f1 -d'.') > $@ && $(ADDNUM) 1 $(shell === tail -1 $(BINS)/bin.table.$(shell === echo $* | cut -f1 -d'.') | cut -f1 -d' ') " " < $(BINS)/bin.table.$(shell === echo $* | cut -f2 -d'.') >> $@
+
+$(BINS) :
+	mkdir bins && $(MKBINS) $(SENTENCES) $(BINS) $(N)

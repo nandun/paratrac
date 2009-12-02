@@ -1,0 +1,650 @@
+625: echo 
+637: echo "You must specify a make-target"
+638: exit 1
+674: echo "####################################"
+675: echo "# BEGIN: `date`"
+676: echo "# ID = 0000"
+677: echo "# OUT_DIR = ./data-2009/medline09n0000"
+678: echo "# HOST_NAME = `hostname`"
+679: echo "# GOAL = "
+680: echo "####################################"
+683: echo "####################################"
+684: echo "# END: `date`"
+685: echo "####################################"
+688: mkdir -p ./data-2009/medline09n0000
+691: rm -rf ./data-2009/medline09n0000/medie_db
+703: echo './data-2009/medline09n0000/medline09n0000.txt.gz'
+704: echo "#---------------------------------------------------------------"
+704: echo "# begin: `date`"
+704: echo  ./data-2009/medline09n0000/medline09n0000.txt.gz | xargs -n 1 echo "# source: "
+704: echo ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# target: "
+704: echo "#---------------------------------------------------------------"
+705: zcat  ./data-2009/medline09n0000/medline09n0000.txt.gz > ./data-2009/medline09n0000/medline09n0000.txt
+706:  zcat  ./data-2009/medline09n0000/medline09n0000.so.gz > ./data-2009/medline09n0000/medline09n0000.so
+707:  zcat  ./data-2009/medline09n0000/medline09n0000.abst.txt.gz > ./data-2009/medline09n0000/medline09n0000.abst.txt
+708:  zcat  ./data-2009/medline09n0000/medline09n0000.abst.so.gz > ./data-2009/medline09n0000/medline09n0000.abst.so
+709:  zcat  ./data-2009/medline09n0000/medline09n0000.abst.ss.gz > ./data-2009/medline09n0000/medline09n0000.abst.ss
+710:  zcat  ./data-2009/medline09n0000/medline09n0000.ex.txt.gz > ./data-2009/medline09n0000/medline09n0000.ex.txt
+711:  zcat  ./data-2009/medline09n0000/medline09n0000.ex.ss.gz > ./data-2009/medline09n0000/medline09n0000.ex.ss
+713:  zcat  ./data-2009/medline09n0000/medline09n0000.enju.so.dat > ./data-2009/medline09n0000/medline09n0000.enju.so
+714:  zcat  ./data-2009/medline09n0000/medline09n0000.ksdep.so.dat > ./data-2009/medline09n0000/medline09n0000.ksdep.so
+715:  zcat  ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz > ./data-2009/medline09n0000/medline09n0000.gene-ne.so
+716:  zcat  ./data-2009/medline09n0000/medline09n0000.other-ne.so.gz > ./data-2009/medline09n0000/medline09n0000.other-ne.so
+717:  zcat  ./data-2009/medline09n0000/medline09n0000.ee.so.gz > ./data-2009/medline09n0000/medline09n0000.ee.so
+718:  zcat  ./data-2009/medline09n0000/medline09n0000.stag.so.gz > ./data-2009/medline09n0000/medline09n0000.stag.so
+720:  zcat  ./data-2009/medline09n0000/medline09n0000.medie-input.xml.gz > ./data-2009/medline09n0000/medline09n0000.medie-input.xml
+734: echo "#---------------------------------------------------------------"
+734: echo "# begin: `date`"
+734: echo  ../../data/data0/medline09n0000.xml.gz | xargs -n 1 echo "# source: "
+734: echo ./data-2009/medline09n0000/medline09n0000.so.gz | xargs -n 1 echo "# target: "
+734: echo "#---------------------------------------------------------------"
+735: if [ -e ../../data/data0/medline09n0000.xml.gz.md5 ]; \
+	then \
+		SUM1=`/usr/bin/md5sum ../../data/data0/medline09n0000.xml.gz | awk '{print $1}'`; \
+		SUM2=`awk '{print $NF}' < ../../data/data0/medline09n0000.xml.gz.md5`; \
+		if [ $SUM1 = $SUM2 ]; then true; \
+		else echo "xml check sum differ" 1>&2; exit 1; fi \
+	fi
+742: zcat ../../data/data0/medline09n0000.xml.gz \
+		| ../../modules/tools/StandOffManager/som import - ./data-2009/medline09n0000/medline09n0000.so.gz.ungz ./data-2009/medline09n0000/medline09n0000.txt.gz.ungz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.so.gz; exit 1; fi
+745: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.so.gz
+746: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.txt.gz
+747: echo "#---------------------------------------------------------------"
+747: echo "# end: `date`"
+747: echo "#---------------------------------------------------------------"
+754: echo "#---------------------------------------------------------------"
+754: echo "# begin: `date`"
+754: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.so.gz | xargs -n 1 echo "# source: "
+754: echo ./data-2009/medline09n0000/medline09n0000.abst.so.gz | xargs -n 1 echo "# target: "
+754: echo "#---------------------------------------------------------------"
+755: zcat ./data-2009/medline09n0000/medline09n0000.so.gz \
+		| ../../modules/tools/StandOffManager/som clip - ./data-2009/medline09n0000/medline09n0000.txt ../../modules/tools/StandOffManager/script/tagsToClip.tag \
+		                ./data-2009/medline09n0000/medline09n0000.abst.so.gz.ungz ./data-2009/medline09n0000/medline09n0000.abst.txt.gz.ungz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.so.gz; exit 1; fi
+759: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.abst.so.gz
+760: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.abst.txt.gz
+761: echo "#---------------------------------------------------------------"
+761: echo "# end: `date`"
+761: echo "#---------------------------------------------------------------"
+780: echo "#---------------------------------------------------------------"
+780: echo "# begin: `date`"
+780: echo  ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt.gz | xargs -n 1 echo "# source: "
+780: echo ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz | xargs -n 1 echo "# target: "
+780: echo "#---------------------------------------------------------------"
+781: /usr/bin/perl ../../modules/tools/medline2medie/make_tbl_one.09 ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt.gz \
+		| gzip -c > ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz; exit 1; fi
+784: echo "#---------------------------------------------------------------"
+784: echo "# end: `date`"
+784: echo "#---------------------------------------------------------------"
+811: echo "#---------------------------------------------------------------"
+811: echo "# begin: `date`"
+811: echo  ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt.gz ./data-2009/article-tables/2008.all.txt-tbl.gz \ ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz | xargs -n 1 echo "# source: "
+811: echo ./data-2009/medline09n0000/medline09n0000.so-src.gz | xargs -n 1 echo "# target: "
+811: echo "#---------------------------------------------------------------"
+812: /usr/bin/perl ../../modules/tools/medline2medie/make_enju_src.09 ./data-2008 ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt.gz \
+	                 ./data-2009/article-tables/2008.all.txt-tbl.gz ./data-2009/medline09n0000/medline09n0000.so-src.gz ./data-2009/medline09n0000/medline09n0000.ex.txt.gz \
+		|| (rm -f ./data-2009/medline09n0000/medline09n0000.so-src.gz ./data-2009/medline09n0000/medline09n0000.ex.txt.gz; exit 1)
+815: echo "#---------------------------------------------------------------"
+815: echo "# end: `date`"
+815: echo "#---------------------------------------------------------------"
+815: 	
+835: echo "#---------------------------------------------------------------"
+835: echo "# begin: `date`"
+835: echo  ./data-2009/medline09n0000/medline09n0000.abst.txt | xargs -n 1 echo "# source: "
+835: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.gz | xargs -n 1 echo "# target: "
+835: echo "#---------------------------------------------------------------"
+836: ../../modules/tools/geniass/run_geniass.sh ./data-2009/medline09n0000/medline09n0000.abst.txt ./data-2009/medline09n0000/medline09n0000.abst.ss.gz.ungz /usr/bin/ruby
+837: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.abst.ss.gz
+838: echo "#---------------------------------------------------------------"
+838: echo "# end: `date`"
+838: echo "#---------------------------------------------------------------"
+844: echo "#---------------------------------------------------------------"
+844: echo "# begin: `date`"
+844: echo  ./data-2009/medline09n0000/medline09n0000.ex.txt | xargs -n 1 echo "# source: "
+844: echo ./data-2009/medline09n0000/medline09n0000.ex.ss.gz | xargs -n 1 echo "# target: "
+844: echo "#---------------------------------------------------------------"
+845: ../../modules/tools/geniass/run_geniass.sh ./data-2009/medline09n0000/medline09n0000.ex.txt ./data-2009/medline09n0000/medline09n0000.ex.ss.gz.ungz /usr/bin/ruby
+846: sh -c 'gzip -c $0.ungz > $0 && rm $0.ungz' ./data-2009/medline09n0000/medline09n0000.ex.ss.gz
+847: echo "#---------------------------------------------------------------"
+847: echo "# end: `date`"
+847: echo "#---------------------------------------------------------------"
+853: echo "#---------------------------------------------------------------"
+853: echo "# begin: `date`"
+853: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.gz ./data-2009/medline09n0000/medline09n0000.abst.txt | xargs -n 1 echo "# source: "
+853: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.map | xargs -n 1 echo "# target: "
+853: echo "#---------------------------------------------------------------"
+854: zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.gz \
+		| ../../modules/tools/geniass/makeMapping ./data-2009/medline09n0000/medline09n0000.abst.txt /dev/stdin > ./data-2009/medline09n0000/medline09n0000.abst.ss.map \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.map; exit 1; fi
+857: echo "#---------------------------------------------------------------"
+857: echo "# end: `date`"
+857: echo "#---------------------------------------------------------------"
+863: echo "#---------------------------------------------------------------"
+863: echo "# begin: `date`"
+863: echo  ./data-2009/medline09n0000/medline09n0000.ex.ss.gz ./data-2009/medline09n0000/medline09n0000.ex.txt | xargs -n 1 echo "# source: "
+863: echo ./data-2009/medline09n0000/medline09n0000.ex.ss.map | xargs -n 1 echo "# target: "
+863: echo "#---------------------------------------------------------------"
+864: zcat ./data-2009/medline09n0000/medline09n0000.ex.ss.gz \
+		| ../../modules/tools/geniass/makeMapping ./data-2009/medline09n0000/medline09n0000.ex.txt /dev/stdin > ./data-2009/medline09n0000/medline09n0000.ex.ss.map \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.ex.ss.map; exit 1; fi
+867: echo "#---------------------------------------------------------------"
+867: echo "# end: `date`"
+867: echo "#---------------------------------------------------------------"
+954: echo "#---------------------------------------------------------------"
+954: echo "# begin: `date`"
+954: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.gz | xargs -n 1 echo "# source: "
+954: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list | xargs -n 1 echo "# target: "
+954: echo "#---------------------------------------------------------------"
+955: rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9] ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9].gz ./data-2009/medline09n0000/medline09n0000.abst.ss.ready-to-merge
+956: (\
+		(zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.gz \
+			| split -a 4 -l 100 -d - ./data-2009/medline09n0000/medline09n0000.abst.ss. ) \
+		&& if [ -e ./data-2009/medline09n0000/medline09n0000.abst.ss.0000 ]; then true ; else touch ./data-2009/medline09n0000/medline09n0000.abst.ss.0000; fi \
+		&& (echo ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9]    | xargs -n 1 gzip ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list; exit 1; fi) \
+		&& (echo ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9].gz | xargs -n 1 echo ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list; exit 1; fi) > ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list \
+	) || (rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9] ./data-2009/medline09n0000/medline09n0000.abst.ss.[0-9][0-9][0-9][0-9].gz ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list ; exit 1)
+963: echo "#---------------------------------------------------------------"
+963: echo "# end: `date`"
+963: echo "#---------------------------------------------------------------"
+975: echo "#---------------------------------------------------------------"
+975: echo "# begin: `date`"
+975: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list | xargs -n 1 echo "# source: "
+975: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.ready-to-merge | xargs -n 1 echo "# target: "
+975: echo "#---------------------------------------------------------------"
+979: sed 's/gz$/enju.gz/' ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list
+980: make -f Makefile09.data `sed 's/gz$/enju.gz/' ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list`
+981: touch ./data-2009/medline09n0000/medline09n0000.abst.ss.ready-to-merge
+982: echo "#---------------------------------------------------------------"
+982: echo "# end: `date`"
+982: echo "#---------------------------------------------------------------"
+985: zcat  | nice -19 ../../modules/tools/enju/run-enju -so -genia | gzip > ./data-2009/medline09n0000/%.enju.gz ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/%.enju.gz; exit 1; fi
+991: echo "#---------------------------------------------------------------"
+991: echo "# begin: `date`"
+991: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list ./data-2009/medline09n0000/medline09n0000.abst.ss.ready-to-merge | xargs -n 1 echo "# source: "
+991: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.enju.so.gz | xargs -n 1 echo "# target: "
+991: echo "#---------------------------------------------------------------"
+992: ((cat ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list | sed 's/\.gz$/.enju.gz/g'); cat ./data-2009/medline09n0000/medline09n0000.abst.ss.subfile-list) \
+		| /usr/bin/perl ../../modules/tools/medline2medie/merge_enju_output.perl | gzip > ./data-2009/medline09n0000/medline09n0000.abst.ss.enju.so.gz ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.enju.so.gz; exit 1; fi
+994: echo "#---------------------------------------------------------------"
+994: echo "# end: `date`"
+994: echo "#---------------------------------------------------------------"
+1002: echo "#---------------------------------------------------------------"
+1002: echo "# begin: `date`"
+1002: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.enju.so.gz ./data-2009/medline09n0000/medline09n0000.abst.ss.map ./data-2009/medline09n0000/medline09n0000.abst.so | xargs -n 1 echo "# source: "
+1002: echo ./data-2009/medline09n0000/medline09n0000.enju.so.raw.gz | xargs -n 1 echo "# target: "
+1002: echo "#---------------------------------------------------------------"
+1003: zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.enju.so.gz \
+		| ../../modules/tools/geniass/remapStandOff /dev/stdin ./data-2009/medline09n0000/medline09n0000.abst.ss.map \
+		| /usr/bin/perl ../../modules/tools/medline2medie/add_lex_head.perl \
+		| ../../modules/tools/StandOffManager/som unite ./data-2009/medline09n0000/medline09n0000.abst.so - - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.enju.so.raw.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.enju.so.raw.gz; exit 1; fi
+1009: echo "#---------------------------------------------------------------"
+1009: echo "# end: `date`"
+1009: echo "#---------------------------------------------------------------"
+1024: echo "#---------------------------------------------------------------"
+1024: echo "# begin: `date`"
+1024: echo  ./data-2009/medline09n0000/medline09n0000.enju.so.raw.gz | xargs -n 1 echo "# source: "
+1024: echo ./data-2009/medline09n0000/medline09n0000.enju.so.dat | xargs -n 1 echo "# target: "
+1024: echo "#---------------------------------------------------------------"
+1025: /usr/bin/perl ../../modules/tools/medline2medie/make_enju_so_idx.perl ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.enju.so.raw.gz \
+	                    ./data-2009/medline09n0000/medline09n0000.enju.so.idx ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		|| (rm -f ./data-2009/medline09n0000/medline09n0000.enju.so.idx ./data-2009/medline09n0000/medline09n0000.enju.so.dat; exit 1)
+1028: echo "#---------------------------------------------------------------"
+1028: echo "# end: `date`"
+1028: echo "#---------------------------------------------------------------"
+1099: echo "#---------------------------------------------------------------"
+1099: echo "# begin: `date`"
+1099: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.gz | xargs -n 1 echo "# source: "
+1099: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.out.gz | xargs -n 1 echo "# target: "
+1099: echo "#---------------------------------------------------------------"
+1100: zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.gz \
+		| (cd ../../modules/tools/geniatagger && ./geniatagger) \
+		| /usr/bin/perl ../../modules/tools/medline2medie/pos2conll.prl \
+		| ../../modules/tools/ksdep/ksdep -m ../../modules/tools/ksdep/genia.mod \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.out.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.out.gz; exit 1; fi 
+1106: echo "#---------------------------------------------------------------"
+1106: echo "# end: `date`"
+1106: echo "#---------------------------------------------------------------"
+1109: echo "#---------------------------------------------------------------"
+1109: echo "# begin: `date`"
+1109: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.out.gz ./data-2009/medline09n0000/medline09n0000.abst.ss | xargs -n 1 echo "# source: "
+1109: echo ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.so.gz | xargs -n 1 echo "# target: "
+1109: echo "#---------------------------------------------------------------"
+1110: zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.out.gz \
+		| /usr/bin/perl ../../modules/tools/medline2medie/dep2so.prl - ./data-2009/medline09n0000/medline09n0000.abst.ss \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.so.gz; exit 1; fi
+1114: echo "#---------------------------------------------------------------"
+1114: echo "# end: `date`"
+1114: echo "#---------------------------------------------------------------"
+1117: echo "#---------------------------------------------------------------"
+1117: echo "# begin: `date`"
+1117: echo  ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.so.gz ./data-2009/medline09n0000/medline09n0000.abst.ss.map ./data-2009/medline09n0000/medline09n0000.abst.so | xargs -n 1 echo "# source: "
+1117: echo ./data-2009/medline09n0000/medline09n0000.ksdep.so.raw.gz | xargs -n 1 echo "# target: "
+1117: echo "#---------------------------------------------------------------"
+1118: zcat ./data-2009/medline09n0000/medline09n0000.abst.ss.ksdep.so.gz \
+        | ../../modules/tools/geniass/remapStandOff /dev/stdin ./data-2009/medline09n0000/medline09n0000.abst.ss.map \
+        | ../../modules/tools/StandOffManager/som unite ./data-2009/medline09n0000/medline09n0000.abst.so - - \
+        | gzip > ./data-2009/medline09n0000/medline09n0000.ksdep.so.raw.gz \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.ksdep.so.raw.gz; exit 1; fi
+1123: echo "#---------------------------------------------------------------"
+1123: echo "# end: `date`"
+1123: echo "#---------------------------------------------------------------"
+1135: echo "#---------------------------------------------------------------"
+1135: echo "# begin: `date`"
+1135: echo  ./data-2009/medline09n0000/medline09n0000.ksdep.so.raw.gz | xargs -n 1 echo "# source: "
+1135: echo ./data-2009/medline09n0000/medline09n0000.ksdep.so.dat | xargs -n 1 echo "# target: "
+1135: echo "#---------------------------------------------------------------"
+1136: /usr/bin/perl ../../modules/tools/medline2medie/make_enju_so_idx.perl ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.ksdep.so.raw.gz \
+	                    ./data-2009/medline09n0000/medline09n0000.ksdep.so.idx ./data-2009/medline09n0000/medline09n0000.ksdep.so.dat \
+		|| (rm -f ./data-2009/medline09n0000/medline09n0000.ksdep.so.idx ./data-2009/medline09n0000/medline09n0000.ksdep.so.dat; exit 1)
+1139: echo "#---------------------------------------------------------------"
+1139: echo "# end: `date`"
+1139: echo "#---------------------------------------------------------------"
+1159: echo "#---------------------------------------------------------------"
+1159: echo "# begin: `date`"
+1159: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.so | xargs -n 1 echo "# source: "
+1159: echo ./data-2009/medline09n0000/medline09n0000.gene-ne-filter.so | xargs -n 1 echo "# target: "
+1159: echo "#---------------------------------------------------------------"
+1160: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+        | ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.so - \
+        | env LD_LIBRARY_PATH=/usr/local/gcc/lib64:/usr/local/gcc/lib:$LD_LIBRARY_PATH ../../modules/tools/MEDIE_NER/MedT_NER/medt_ner ./data-2009/medline09n0000/medline09n0000.txt - ./data-2009/medline09n0000/medline09n0000.gene-ne-filter.so \
+         -tag  Article \
+         -a    filter \
+         -thr  0.0 \
+         -m    ../../modules/tools/MEDIE_NER/model/filter.output \
+         -s    ../../modules/tools/MEDIE_NER/model/filter.dict \
+         -init ../../modules/tools/MEDIE_NER/model/gena.mtn \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.gene-ne-filter.so; exit 1; fi
+1164: echo "#---------------------------------------------------------------"
+1164: echo "# end: `date`"
+1164: echo "#---------------------------------------------------------------"
+1170: echo "#---------------------------------------------------------------"
+1170: echo "# begin: `date`"
+1170: echo  ./data-2009/medline09n0000/medline09n0000.gene-ne-filter.so ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.so | xargs -n 1 echo "# source: "
+1170: echo ./data-2009/medline09n0000/medline09n0000.gene-ne-disamb.so | xargs -n 1 echo "# target: "
+1170: echo "#---------------------------------------------------------------"
+1171: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+        | ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag ./data-2009/medline09n0000/medline09n0000.gene-ne-filter.so - ./data-2009/medline09n0000/medline09n0000.so - \
+        | env LD_LIBRARY_PATH=/usr/local/gcc/lib64:/usr/local/gcc/lib:$LD_LIBRARY_PATH ../../modules/tools/MEDIE_NER/MedT_NER/medt_ner ./data-2009/medline09n0000/medline09n0000.txt - - \
+         -tag  Article \
+         -a    rdisamb \
+         -m    ../../modules/tools/MEDIE_NER/model/disamb.output \
+         -s    ../../modules/tools/MEDIE_NER/model/disamb.dict \
+         -init ../../modules/tools/MEDIE_NER/model/gena.mtn \
+        | /usr/bin/perl ../../modules/tools/medline2medie/sort_by_article.perl ./data-2009/medline09n0000/medline09n0000.so > ./data-2009/medline09n0000/medline09n0000.gene-ne-disamb.so \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.gene-ne-disamb.so; exit 1; fi
+1176: echo "#---------------------------------------------------------------"
+1176: echo "# end: `date`"
+1176: echo "#---------------------------------------------------------------"
+1182: echo "#---------------------------------------------------------------"
+1182: echo "# begin: `date`"
+1182: echo  ./data-2009/medline09n0000/medline09n0000.gene-ne-disamb.so ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.so | xargs -n 1 echo "# source: "
+1182: echo ./data-2009/medline09n0000/medline09n0000.gene-ne-all.so.gz | xargs -n 1 echo "# target: "
+1182: echo "#---------------------------------------------------------------"
+1183: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+        | ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag ./data-2009/medline09n0000/medline09n0000.gene-ne-disamb.so - ./data-2009/medline09n0000/medline09n0000.so - \
+        | env LD_LIBRARY_PATH=/usr/local/gcc/lib64:/usr/local/gcc/lib:$LD_LIBRARY_PATH ../../modules/tools/MEDIE_NER/filter_words/filter_words ./data-2009/medline09n0000/medline09n0000.txt - - \
+         -w ../../modules/tools/MEDIE_NER/filter_words/stop_word.txt \
+         -p ../../modules/tools/MEDIE_NER/filter_words/stop_pos.txt \
+        | /usr/bin/perl ../../modules/tools/medline2medie/merge_gena_data.perl ../../modules/tools/Gena-20051011 \
+        | gzip -c > ./data-2009/medline09n0000/medline09n0000.gene-ne-all.so.gz \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.gene-ne-all.so.gz; exit 1; fi
+1189: echo "#---------------------------------------------------------------"
+1189: echo "# end: `date`"
+1189: echo "#---------------------------------------------------------------"
+1195: echo "#---------------------------------------------------------------"
+1195: echo "# begin: `date`"
+1195: echo  ./data-2009/medline09n0000/medline09n0000.gene-ne-all.so.gz | xargs -n 1 echo "# source: "
+1195: echo ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz | xargs -n 1 echo "# target: "
+1195: echo "#---------------------------------------------------------------"
+1196: zcat ./data-2009/medline09n0000/medline09n0000.gene-ne-all.so.gz \
+		| /usr/bin/perl ../../modules/tools/medline2medie/confidence_filter.perl filter_confidence 0.015 \
+		| gzip -c > ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz; exit 1; fi
+1200: echo "#---------------------------------------------------------------"
+1200: echo "# end: `date`"
+1200: echo "#---------------------------------------------------------------"
+1219: echo "#---------------------------------------------------------------"
+1219: echo "# begin: `date`"
+1219: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat | xargs -n 1 echo "# source: "
+1219: echo ./data-2009/medline09n0000/medline09n0000.other-ne-match.so | xargs -n 1 echo "# target: "
+1219: echo "#---------------------------------------------------------------"
+1220: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		| /usr/bin/perl ../../modules/tools/medline2medie/extract_sentence_text.perl ./data-2009/medline09n0000/medline09n0000.txt - \
+        | ../../modules/tools/disease_longest_ner/longest_ner -format ../../modules/tools/disease_longest_ner/facta_ne_format.txt -usedict ../../modules/tools/disease_longest_ner/facta_dict.ln \
+        | ../../modules/tools/StandOffManager/som sort - ./data-2009/medline09n0000/medline09n0000.other-ne-match.so \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.other-ne-match.so; exit 1; fi
+1225: echo "#---------------------------------------------------------------"
+1225: echo "# end: `date`"
+1225: echo "#---------------------------------------------------------------"
+1231: echo "#---------------------------------------------------------------"
+1231: echo "# begin: `date`"
+1231: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.so ./data-2009/medline09n0000/medline09n0000.other-ne-match.so | xargs -n 1 echo "# source: "
+1231: echo ./data-2009/medline09n0000/medline09n0000.other-ne.so.gz | xargs -n 1 echo "# target: "
+1231: echo "#---------------------------------------------------------------"
+1232: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+        | ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag ./data-2009/medline09n0000/medline09n0000.other-ne-match.so - ./data-2009/medline09n0000/medline09n0000.so - \
+        | env LD_LIBRARY_PATH=/usr/local/gcc/lib64:/usr/local/gcc/lib:$LD_LIBRARY_PATH ../../modules/tools/MEDIE_NER/filter_words/filter_words ./data-2009/medline09n0000/medline09n0000.txt - - \
+         -w ../../modules/tools/MEDIE_NER/filter_words/stop_word.txt \
+         -p ../../modules/tools/MEDIE_NER/filter_words/stop_pos.txt \
+        | gzip -c > ./data-2009/medline09n0000/medline09n0000.other-ne.so.gz \
+        ; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.other-ne.so.gz; exit 1; fi
+1237: echo "#---------------------------------------------------------------"
+1237: echo "# end: `date`"
+1237: echo "#---------------------------------------------------------------"
+1253: echo "#---------------------------------------------------------------"
+1253: echo "# begin: `date`"
+1253: echo  ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz ./data-2009/medline09n0000/medline09n0000.other-ne.so | xargs -n 1 echo "# source: "
+1253: echo ./data-2009/medline09n0000/medline09n0000.all-ne.so | xargs -n 1 echo "# target: "
+1253: echo "#---------------------------------------------------------------"
+1254: zcat ./data-2009/medline09n0000/medline09n0000.gene-ne.so.gz \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.other-ne.so ./data-2009/medline09n0000/medline09n0000.all-ne.so \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.all-ne.so; exit 1; fi
+1257: echo "#---------------------------------------------------------------"
+1257: echo "# end: `date`"
+1257: echo "#---------------------------------------------------------------"
+1260: echo "#---------------------------------------------------------------"
+1260: echo "# begin: `date`"
+1260: echo  ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.all-ne.so | xargs -n 1 echo "# source: "
+1260: echo ./data-2009/medline09n0000/medline09n0000.enju-ne.so.gz | xargs -n 1 echo "# target: "
+1260: echo "#---------------------------------------------------------------"
+1261: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.all-ne.so - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.enju-ne.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.enju-ne.so.gz; exit 1; fi
+1265: echo "#---------------------------------------------------------------"
+1265: echo "# end: `date`"
+1265: echo "#---------------------------------------------------------------"
+1268: echo "#---------------------------------------------------------------"
+1268: echo "# begin: `date`"
+1268: echo  ./data-2009/medline09n0000/medline09n0000.enju-ne.so.gz ./data-2009/medline09n0000/medline09n0000.so | xargs -n 1 echo "# source: "
+1268: echo ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz | xargs -n 1 echo "# target: "
+1268: echo "#---------------------------------------------------------------"
+1269: zcat ./data-2009/medline09n0000/medline09n0000.enju-ne.so.gz \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.so - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz; exit 1; fi
+1273: echo "#---------------------------------------------------------------"
+1273: echo "# end: `date`"
+1273: echo "#---------------------------------------------------------------"
+1293: echo "#---------------------------------------------------------------"
+1293: echo "# begin: `date`"
+1293: echo  ./data-2009/medline09n0000/medline09n0000.enju.so.dat ../../modules/tools/ee/eedict.lst | xargs -n 1 echo "# source: "
+1293: echo ./data-2009/medline09n0000/medline09n0000.ee.so.gz | xargs -n 1 echo "# target: "
+1293: echo "#---------------------------------------------------------------"
+1294: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		| ../../modules/tools/ee/eet ../../modules/tools/ee/eet.conf ../../modules/tools/ee/eedict.lst \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.ee.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.ee.so.gz; exit 1; fi
+1298: echo "#---------------------------------------------------------------"
+1298: echo "# end: `date`"
+1298: echo "#---------------------------------------------------------------"
+1308: echo "#---------------------------------------------------------------"
+1308: echo "# begin: `date`"
+1308: echo  ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# source: "
+1308: echo ./data-2009/medline09n0000/medline09n0000.stag.so.gz | xargs -n 1 echo "# target: "
+1308: echo "#---------------------------------------------------------------"
+1309: /usr/bin/perl ../../modules/tools/medline2medie/make_stagger_input.perl ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| ../../modules/tools/abstruct/bin/sentence_tagger.sh > ./data-2009/medline09n0000/medline09n0000.stag.so.gz.tmp.output \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.stag.so.gz; exit 1; fi
+1312: zcat ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| /usr/bin/perl ../../modules/tools/medline2medie/merge_stagger_output.perl ./data-2009/medline09n0000/medline09n0000.stag.so.gz.tmp.output \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.stag.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.stag.so.gz; exit 1; fi
+1316: rm ./data-2009/medline09n0000/medline09n0000.stag.so.gz.tmp.output
+1317: echo "#---------------------------------------------------------------"
+1317: echo "# end: `date`"
+1317: echo "#---------------------------------------------------------------"
+1327: echo "#---------------------------------------------------------------"
+1327: echo "# begin: `date`"
+1327: echo  ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# source: "
+1327: echo ./data-2009/medline09n0000/medline09n0000.bib.so | xargs -n 1 echo "# target: "
+1327: echo "#---------------------------------------------------------------"
+1328: zcat ./data-2009/medline09n0000/medline09n0000.so.gz \
+		| /usr/bin/perl ../../modules/tools/medline2medie/bib_tagger.perl ../../modules/tools/medline2medie/bib_pubmed.dat ./data-2009/medline09n0000/medline09n0000.txt > ./data-2009/medline09n0000/medline09n0000.bib.so \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.bib.so; exit 1; fi
+1331: echo "#---------------------------------------------------------------"
+1331: echo "# end: `date`"
+1331: echo "#---------------------------------------------------------------"
+1350: echo "#---------------------------------------------------------------"
+1350: echo "# begin: `date`"
+1350: echo  ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz ./data-2009/medline09n0000/medline09n0000.ee.so ./data-2009/medline09n0000/medline09n0000.stag.so ./data-2009/medline09n0000/medline09n0000.bib.so | xargs -n 1 echo "# source: "
+1350: echo ./data-2009/medline09n0000/medline09n0000.medie-input.so.gz | xargs -n 1 echo "# target: "
+1350: echo "#---------------------------------------------------------------"
+1351: zcat ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.ee.so ./data-2009/medline09n0000/medline09n0000.stag.so ./data-2009/medline09n0000/medline09n0000.bib.so - \
+		| /usr/bin/perl ../../modules/tools/medline2medie/change_id.perl \
+		| /usr/bin/perl ../../modules/tools/medline2medie/compatible.perl medline09n0000 \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.medie-input.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.medie-input.so.gz; exit 1; fi
+1357: echo "#---------------------------------------------------------------"
+1357: echo "# end: `date`"
+1357: echo "#---------------------------------------------------------------"
+1363: echo "#---------------------------------------------------------------"
+1363: echo "# begin: `date`"
+1363: echo  ./data-2009/medline09n0000/medline09n0000.medie-input.so.gz ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# source: "
+1363: echo ./data-2009/medline09n0000/medline09n0000.medie-input.xml.gz | xargs -n 1 echo "# target: "
+1363: echo "#---------------------------------------------------------------"
+1364: zcat ./data-2009/medline09n0000/medline09n0000.medie-input.so.gz \
+		| ../../modules/tools/StandOffManager/som export - ./data-2009/medline09n0000/medline09n0000.txt - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.medie-input.xml.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.medie-input.xml.gz; exit 1; fi
+1368: echo "#---------------------------------------------------------------"
+1368: echo "# end: `date`"
+1368: echo "#---------------------------------------------------------------"
+1374: echo "#---------------------------------------------------------------"
+1374: echo "# begin: `date`"
+1374: echo  ./data-2009/medline09n0000/medline09n0000.medie-input.xml | xargs -n 1 echo "# source: "
+1374: echo ./data-2009/medline09n0000/medie_db/medline09n0000.medie_db.time-stamp | xargs -n 1 echo "# target: "
+1374: echo "#---------------------------------------------------------------"
+1375: rm -f ./data-2009/medline09n0000/medie_db/medline09n0000.medie_db.time-stamp
+1376: rm -rf ./data-2009/medline09n0000/medie_db
+1377: mkdir -p ./data-2009/medline09n0000/medie_db
+1378: ../../modules/tools/medie-noBDB/makeDB/read-file \
+		-attrlist ../../modules/tools/medline2medie/medie.attrlist \
+		-setting  ../../modules/tools/medline2medie/medie.setting \
+		-f        ./data-2009/medline09n0000/medline09n0000.medie-input.xml \
+		-dbdir    ./data-2009/medline09n0000/medie_db \
+		> ./data-2009/medline09n0000/medie_db/medline09n0000.make_db.log 2>&1
+1384: touch ./data-2009/medline09n0000/medie_db/medline09n0000.medie_db.time-stamp
+1385: echo "#---------------------------------------------------------------"
+1385: echo "# end: `date`"
+1385: echo "#---------------------------------------------------------------"
+1412: echo "#---------------------------------------------------------------"
+1412: echo "# begin: `date`"
+1412: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat ./data-2009/medline09n0000/medline09n0000.gene-ne.so ./data-2009/medline09n0000/medline09n0000.so | xargs -n 1 echo "# source: "
+1412: echo ./data-2009/medline09n0000/medline09n0000.ppi-input.so | xargs -n 1 echo "# target: "
+1412: echo "#---------------------------------------------------------------"
+1413: zcat ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - ./data-2009/medline09n0000/medline09n0000.gene-ne.so ./data-2009/medline09n0000/medline09n0000.so ./data-2009/medline09n0000/medline09n0000.ppi-input.so \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.ppi-input.so; exit 1; fi
+1416: echo "#---------------------------------------------------------------"
+1416: echo "# end: `date`"
+1416: echo "#---------------------------------------------------------------"
+1419: echo "#---------------------------------------------------------------"
+1419: echo "# begin: `date`"
+1419: echo  ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.ppi-input.so ./data-2009/medline09n0000/medline09n0000.enju.so ./data-2009/medline09n0000/medline09n0000.ksdep.so | xargs -n 1 echo "# source: "
+1419: echo ./data-2009/medline09n0000/medline09n0000.runeconf.xml | xargs -n 1 echo "# target: "
+1419: echo "#---------------------------------------------------------------"
+1420: /usr/bin/perl ../../modules/tools/medline2medie/runeconf.prl ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.ppi-input.so ./data-2009/medline09n0000/medline09n0000.enju.so ./data-2009/medline09n0000/medline09n0000.ksdep.so \
+	               ./data-2009/medline09n0000/medline09n0000.ppi-input.so ../../modules/tools/AkanePPI/AIMed/Enju_TK_Words.linear.model ./data-2009/medline09n0000/medline09n0000 > ./data-2009/medline09n0000/medline09n0000.runeconf.xml
+1422: echo "#---------------------------------------------------------------"
+1422: echo "# end: `date`"
+1422: echo "#---------------------------------------------------------------"
+1425: echo "#---------------------------------------------------------------"
+1425: echo "# begin: `date`"
+1425: echo  ./data-2009/medline09n0000/medline09n0000.runeconf.xml ./data-2009/medline09n0000/medline09n0000.ppi-input.so ./data-2009/medline09n0000/medline09n0000.enju.so ./data-2009/medline09n0000/medline09n0000.ksdep.so | xargs -n 1 echo "# source: "
+1425: echo ./data-2009/medline09n0000/medline09n0000.ppi.so.gz | xargs -n 1 echo "# target: "
+1425: echo "#---------------------------------------------------------------"
+1426: ../../modules/tools/AkanePPI/akane script ./data-2009/medline09n0000/medline09n0000.runeconf.xml -C g 2> ./data-2009/medline09n0000/medline09n0000.akane.log
+1427: rm -f ./data-2009/medline09n0000/medline09n0000.akane.log.gz
+1428: rm -f ./data-2009/medline09n0000/medline09n0000.ppi.so.gz
+1429: gzip ./data-2009/medline09n0000/medline09n0000.akane.log
+1430: gzip ./data-2009/medline09n0000/medline09n0000.ppi.so
+1431: echo "#---------------------------------------------------------------"
+1431: echo "# end: `date`"
+1431: echo "#---------------------------------------------------------------"
+1443: echo "#---------------------------------------------------------------"
+1443: echo "# begin: `date`"
+1443: echo  ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz ./data-2009/medline09n0000/medline09n0000.txt ./data-2009/medline09n0000/medline09n0000.enju.so.dat | xargs -n 1 echo "# source: "
+1443: echo ./data-2009/medline09n0000/medline09n0000.dga.so.gz | xargs -n 1 echo "# target: "
+1443: echo "#---------------------------------------------------------------"
+1444: # 2007.11.07: workaround for dga's bug (som sort)
+1445: # 2007.11.07: another workaround for dga's bug (output_filter)
+1446: zcat ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| /usr/bin/perl ../../modules/tools/dga/input_filter.perl \
+		| ../../modules/tools/dga/run_dga.sh /dev/stdin ./data-2009/medline09n0000/medline09n0000.txt \
+		| ../../modules/tools/StandOffManager/som sort - - \
+		| /usr/bin/perl ../../modules/tools/dga/output_filter.perl ./data-2009/medline09n0000/medline09n0000.enju.so.dat \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.dga.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.dga.so.gz; exit 1; fi
+1453: echo "#---------------------------------------------------------------"
+1453: echo "# end: `date`"
+1453: echo "#---------------------------------------------------------------"
+1463: echo "#---------------------------------------------------------------"
+1463: echo "# begin: `date`"
+1463: echo  ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz | xargs -n 1 echo "# source: "
+1463: echo ./data-2009/medline09n0000/medline09n0000.coocc.so.gz | xargs -n 1 echo "# target: "
+1463: echo "#---------------------------------------------------------------"
+1464: zcat ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| ../../modules/tools/info-pubmed/WEB-INF/src/C++/FindCoocc/find_coocc \
+		| ../../modules/tools/StandOffManager/som sort -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.coocc.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.coocc.so.gz; exit 1; fi
+1469: echo "#---------------------------------------------------------------"
+1469: echo "# end: `date`"
+1469: echo "#---------------------------------------------------------------"
+1483: echo "#---------------------------------------------------------------"
+1483: echo "# begin: `date`"
+1483: echo  \ ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \ ./data-2009/medline09n0000/medline09n0000.ppi.so.gz \ ./data-2009/medline09n0000/medline09n0000.dga.so.gz \ ./data-2009/medline09n0000/medline09n0000.coocc.so.gz | xargs -n 1 echo "# source: "
+1483: echo ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz | xargs -n 1 echo "# target: "
+1483: echo "#---------------------------------------------------------------"
+1484: zcat ./data-2009/medline09n0000/medline09n0000.ppi.so.gz \
+		| /usr/bin/perl ../../modules/tools/medline2medie/confidence_filter.perl confidence 0 \
+		| perl -p -e 's/\s+id="[^"]*"//; s/\s+confidence="[^"]*"//; s/$/ subtype="unknown"/;' \
+		> ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.ppi.so \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz; exit 1; fi
+1489: zcat ./data-2009/medline09n0000/medline09n0000.dga.so.gz > ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.dga.so
+1490: zcat ./data-2009/medline09n0000/medline09n0000.coocc.so.gz > ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.coocc.so
+1491: zcat ./data-2009/medline09n0000/medline09n0000.pubmed-enju-ne.so.gz \
+		| ../../modules/tools/StandOffManager/som merge2 -t ../../modules/tools/StandOffManager/script/tagOrder.enju-2_2.tag - \
+			./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.ppi.so ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.dga.so ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.coocc.so - \
+		| gzip > ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz; exit 1; fi
+1496: rm ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.ppi.so ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.dga.so ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz.tmp.coocc.so
+1497: echo "#---------------------------------------------------------------"
+1497: echo "# end: `date`"
+1497: echo "#---------------------------------------------------------------"
+1500: echo "#---------------------------------------------------------------"
+1500: echo "# begin: `date`"
+1500: echo  ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# source: "
+1500: echo ./data-2009/medline09n0000/medline09n0000.preout | xargs -n 1 echo "# target: "
+1500: echo "#---------------------------------------------------------------"
+1501: zcat ./data-2009/medline09n0000/medline09n0000.iconverter-input.so.gz \
+		| ../../modules/tools/info-pubmed/WEB-INF/src/C++/IConverter/IConverter /dev/stdin ./data-2009/medline09n0000/medline09n0000.txt medline09n0000 > ./data-2009/medline09n0000/medline09n0000.preout \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/medline09n0000/medline09n0000.preout; exit 1; fi
+1504: echo "#---------------------------------------------------------------"
+1504: echo "# end: `date`"
+1504: echo "#---------------------------------------------------------------"
+1507: echo "#---------------------------------------------------------------"
+1507: echo "# begin: `date`"
+1507: echo  ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt | xargs -n 1 echo "# source: "
+1507: echo ./data-2009/medline09n0000/medline09n0000.delcit | xargs -n 1 echo "# target: "
+1507: echo "#---------------------------------------------------------------"
+1508: /usr/bin/perl ../../modules/tools/info-pubmed/WEB-INF/script/collect_del.prl ./data-2009/medline09n0000/medline09n0000.so.gz ./data-2009/medline09n0000/medline09n0000.txt > ./data-2009/medline09n0000/medline09n0000.delcit
+1509: echo "#---------------------------------------------------------------"
+1509: echo "# end: `date`"
+1509: echo "#---------------------------------------------------------------"
+1545: echo "#---------------------------------------------------------------"
+1545: echo "# begin: `date`"
+1545: echo  ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz ../../data/data0/medline09n0000.xml.gz | xargs -n 1 echo "# source: "
+1545: echo ./data-2009/medline09n0000/medline09n0000.summary | xargs -n 1 echo "# target: "
+1545: echo "#---------------------------------------------------------------"
+1549: /usr/bin/perl ../../modules/tools/medline2medie/make_summary_rec.perl -b ./data-2009/medline09n0000/medline09n0000.txt-tbl.gz ../../data/data0/medline09n0000.xml.gz > ./data-2009/medline09n0000/medline09n0000.summary
+1550: echo "#---------------------------------------------------------------"
+1550: echo "# end: `date`"
+1550: echo "#---------------------------------------------------------------"
+1570: echo "#---------------------------------------------------------------"
+1570: echo "# begin: `date`"
+1570: echo  ./data-2009/medline09n0000/medline09n0000.preout ./data-2009/medline09n0000/medline09n0000.summary ./data-2009/medline09n0000/medline09n0000.txt.gz ./data-2009/medline09n0000/medie_db/medline09n0000.medie_db.time-stamp | xargs -n 1 echo "# source: "
+1570: echo ./data-2009/export/medline09n0000.export.tgz | xargs -n 1 echo "# target: "
+1570: echo "#---------------------------------------------------------------"
+1571: rm -rf   ./data-2009/work/medline09n0000
+1572: mkdir -p ./data-2009/export/
+1573: mkdir -p ./data-2009/work/medline09n0000
+1574: for f in /home/shibata/racc/./data-2009/medline09n0000/medline09n0000.preout /home/shibata/racc/./data-2009/medline09n0000/medline09n0000.summary /home/shibata/racc/./data-2009/medline09n0000/medline09n0000.txt.gz /home/shibata/racc/./data-2009/medline09n0000/medie_db ; do ln -s $f ./data-2009/work/medline09n0000/; done
+1575: tar hcvzf ./data-2009/export/medline09n0000.export.tgz -C ./data-2009/work/medline09n0000/.. medline09n0000
+1576: rm -rf ./data-2009/work/medline09n0000
+1577: echo "#---------------------------------------------------------------"
+1577: echo "# end: `date`"
+1577: echo "#---------------------------------------------------------------"
+1598: echo "#---------------------------------------------------------------"
+1598: echo "# begin: `date`"
+1598: echo  | xargs -n 1 echo "# source: "
+1598: echo ./data-2009/article-tables/2009.baseline.txt-tbl.gz | xargs -n 1 echo "# target: "
+1598: echo "#---------------------------------------------------------------"
+1599: mkdir -p ./data-2009/article-tables/
+1600: seq 1 0563 \
+		| awk '{ printf "%s/medline09n%04d/medline09n%04d.txt-tbl.gz\n", \
+		       "./data-2009", $1, $1 }' \
+		| /usr/bin/perl ../../modules/tools/medline2medie/merge_txt_tbl.perl \
+		| gzip -c > ./data-2009/article-tables/2009.baseline.txt-tbl.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/article-tables/2009.baseline.txt-tbl.gz; exit 1; fi
+1606: echo "#---------------------------------------------------------------"
+1606: echo "# end: `date`"
+1606: echo "#---------------------------------------------------------------"
+1612: echo "#---------------------------------------------------------------"
+1612: echo "# begin: `date`"
+1612: echo  | xargs -n 1 echo "# source: "
+1612: echo ./data-2009/article-tables/2008.all.txt-tbl.gz | xargs -n 1 echo "# target: "
+1612: echo "#---------------------------------------------------------------"
+1613: mkdir -p ./data-2009/article-tables/
+1614: M=medline08; echo ./data-2008/${M}n????/${M}n????.txt-tbl.gz \
+		| xargs -n 1 echo \
+		| /usr/bin/perl ../../modules/tools/medline2medie/merge_txt_tbl.perl \
+		| gzip -c > ./data-2009/article-tables/2008.all.txt-tbl.gz \
+		; \
+if [ `echo ${PIPESTATUS[@]} | tr -d " "` -ne 0 ]; then rm -f ./data-2009/article-tables/2008.all.txt-tbl.gz; exit 1; fi
+1619: echo "#---------------------------------------------------------------"
+1619: echo "# end: `date`"
+1619: echo "#---------------------------------------------------------------"

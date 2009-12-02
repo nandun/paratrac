@@ -1,0 +1,117 @@
+class ParseLogDir
+
+	def file_escape_ret_each(filename)
+		f = open(filename)
+		esc_ret_line = ""
+		while line = f.gets
+			if /(\\+)$/ =~ line and ($1.size)%2 == 1
+					/^(.*)\\$/ =~ line
+					esc_ret_line += $1
+			else
+				esc_ret_line += line
+			  yield(esc_ret_line)
+				esc_ret_line =""
+			end
+	  end
+		if not esc_ret_line == ""
+			yield(esc_ret_line)
+		end
+	end
+	
+	def parseProcLog()
+	  gxp_id_from_host_pid={}
+		Dir::glob("#{@log_dir}/*/proc_log"){|logpath|
+			 puts logpath
+		   host = File::basename(File::dirname(logpath))
+		   file_escape_ret_each(logpath){|line|
+		      if not /^(\d+\:\d+) (.*)$/ =~ line
+                        puts "error!" + line
+                      end
+		      dnq = host+":"+$1
+		      environ = $2
+		      if /.*GXP_MAKE_WORK_IDX=(\d+).*/ =~ environ
+		        gxp_id_from_host_pid[dnq] = $1
+                      else
+                        puts "worning:no_gxp_id[#{dnq}] "+ line.gsub('\0',' ')
+		      end
+		   }
+		}
+		return gxp_id_from_host_pid
+	end
+	
+	def initialize (log_dir)
+		@log_dir = log_dir
+		@gxp_id_from_dnq = parseProcLog
+	end
+
+	def each_operation
+		Dir::glob("#{@log_dir}/*/access_log"){|logpath|
+		  puts logpath
+		  host = File::basename(File::dirname(logpath))
+		  f=open(logpath)
+		  while l = f.gets
+		    # remove .fuse_hidden*
+		    next if /\.fuse_hidden/ =~ l
+
+		    arg={}
+
+		    #get attributes
+		    t = size = mode = nil
+		    if /t=(\d+)/ =~ l
+		     arg['t'] = $1.to_i
+		    end
+		    if /size=(\d+)/ =~ l
+		     arg['size'] = $1.to_i
+		    end
+		    if /mode=(\S+)/ =~ l
+		     arg['mode'] = $1
+		    end
+
+		    # PID operation path
+		    if /(\d+:\d+) (created|opened|unlink|getattr|mkdir|readdir|rmdir) (\S+)/ =~ l
+					dnq = "#{host}:#{$1}"
+		      ope = $2
+					filename = $3
+		      gxp_id = @gxp_id_from_dnq[dnq]
+		      if gxp_id == nil
+                        next
+                      end
+		      yield(gxp_id, ope, filename, arg )
+
+		    # PID closed path read( time count byte ) write( time count byte )
+		    elsif /(\d+:\d+) closed (\S+) \( ([0-9\.]+) ([0-9]+) ([0-9]+) \) \( ([0-9\.]+) ([0-9]+) ([0-9]+) \)/ =~ l
+					dnq = "#{host}:#{$1}"
+					filename = $2
+		      arg['r_time']= $3.to_f
+		      arg['r_num']= $4.to_i
+		      arg['r_size']= $5.to_i
+		      arg['w_time']= $6.to_f
+		      arg['w_num']= $7.to_i
+		      arg['w_size']= $8.to_i
+		      gxp_id = @gxp_id_from_dnq[dnq]
+		      if gxp_id == nil
+                        puts "no gxp_id[#{dnq}]: "+l
+                        next
+                      end
+		      yield(gxp_id, 'closed', filename, arg )
+		    end
+		  end
+		  f.close
+		}
+	end
+
+end
+
+
+
+
+
+
+
+		
+
+
+
+
+
+

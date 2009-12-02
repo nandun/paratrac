@@ -1,0 +1,8 @@
+12: cat out/*.formatted | grep -v "<格フレーム>" > cf.formatted
+13: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/formatted2knpdict.perl --sm2ex --rn --thesaurus BGH cf.formatted > cf.knpdict
+20: sort -k 2,2 -k 1,1nr < %.data.sid > %.data.basic
+23: mkdir -p %
+24: cp %.data.basic %
+25: ../../modules/cf/scripts/cut-data-basic.sh %/
+26: make -f ../../modules/cf/Makefile PERL='perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0' base=%/  basedir=../../modules/cf pmdir=../../modules/kawahara-pm/perl thesaurus=cf formatted
+27: cp -f %/.formatted %.formatted

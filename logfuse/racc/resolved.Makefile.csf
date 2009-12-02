@@ -1,0 +1,21 @@
+24: juman -i \# < ../../data/data0/%.org > %.jmn
+27: ../../modules/cf/scripts/parse-comp.sh -s ../../modules/cf/scripts %.jmn
+30: tac %.knp | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/feature2bnst.perl | tac | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe.perl --rn --compound 1 | perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe-filter.perl > %.data
+33: cat *.data > all.data
+37: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/make-caseframe-filter.perl all.data | sort -k 2 > all.data.orig
+40: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/delete-sid.perl all.data.orig | uniq -c > all.data.sid
+41: mkdir -p out
+42: perl -I../../modules/cf/scripts -I../../modules/kawahara-pm/perl -I../../modules/share/perl/5.10.0 -I../../modules/lib/perl/5.10.0 ../../modules/cf/scripts/split-pa-uniq2.perl -sid -min 1000 -base out/all < all.data.sid
+43: for f in `ls all`; do basename $f .data.sid; done > all.list
+48: make -f mk_formatted cf.knpdict
+53: -find -name "*.jmn" -exec rm {} \;
+54: -find -name "*.log" -exec rm {} \;
+55: -find -name "*.data" -exec rm {} \;
+56: -find -name "*.knp" -exec rm {} \;
+57: -find -name "*.jmn0" -exec rm {} \;
+58: -find -name "*.knp0" -exec rm {} \;
+59: -find -name "*.log0" -exec rm {} \;
+60: -find -name "*.data0" -exec rm {} \;
+61: -rm all.data all.data.orig all.data.sid all.list
+62: -rm cf.formatted cf.knpdict
+63: -rm out -rf
