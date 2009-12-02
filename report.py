@@ -119,7 +119,7 @@ class FUSETracReport(Report):
             vlist = map(lambda x:x[0], vlist)
             index = 0
             self.ws("CDF of latency of %s (microsec, ratio)\n" % sc)
-            for latency, ratio in stat_cdf(vlist, 0.1, 0.1):
+            for latency, ratio in stat_cdf(vlist, 0.4, 0.4):
                 index += 1
                 self.ws("(%.6f,%.6f) " % (latency*1000000, ratio))
                 if index % 3 == 1: self.ws("\n")
