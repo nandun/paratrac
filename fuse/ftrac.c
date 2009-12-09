@@ -1,6 +1,6 @@
 /****************************************************************************
  * ParaTrac: Scalable Tracking Tools for Parallel Applications
- * Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+ * Copyright (C) 2009,2010  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/utsname.h>
+#include <sys/inotify.h>
 #ifdef HAVE_SETXATTR
 #include <sys/xattr.h>
 #endif
@@ -117,6 +118,8 @@
 #define SERVER_MAX_BUFF	256
 #define MAX_FILENAME	255
 #define MAX_LINE		1024
+#define MAX_RAND_MIN	0
+#define MAX_RAND_MAX	100
 
 #define FTRAC_SIGNAL_INIT   SIGUSR1
 
@@ -143,6 +146,12 @@
 
 #define MAX_MSG_SIZE	1024
 #define MAX_CPUS	32
+
+/* inotify constants */
+#define INOTIFY_PROC_ENV_CHANGE	IN_OPEN | IN_ACCESS | IN_CLOSE_NOWRITE
+#define INOTIFY_PROC_ENV_CHANGED IN_CLOSE_NOWRITE
+#define INOTIFY_EVENT_SIZE	(sizeof(struct inotify_event))
+#define INOTIFY_EVENT_BUFLEN (1024 * (INOTIFY_EVENT_SIZE + 16))
 
 #define DEBUG(format, args...) \
 	do {if (ftrac.debug) fprintf(stderr, format, args); } while(0)
@@ -220,6 +229,14 @@ typedef struct netlink_channel {
 	char cpumask[32];
 } * netlink_channel_t;
 
+/* inotify fd and wd */
+typedef struct inotify_channel {
+	int fd;
+	GHashTable *wdmap;
+	pthread_mutex_t lock;
+	pthread_t thread;
+} * inotify_channel_t;
+
 struct ftrac {
 	char *progname;
 	char *mountpoint;
@@ -229,6 +246,7 @@ struct ftrac {
 	uid_t uid;
 	gid_t gid;
 	pid_t pid;
+	int iid;	/* ftrac instance id */
 
 	/* control server */
 	char *sessiondir;
@@ -250,6 +268,7 @@ struct ftrac {
 	FILE *log;
 	FILE *procmap;
 	FILE *procstat;
+	FILE *procenviron;
 	FILE *filemap;
 
 	/* process accounting */
@@ -258,6 +277,9 @@ struct ftrac {
 	int nlsock;
 	size_t nlbufsize;
 	netlink_channel_t nlarr;
+
+	/* inotify */
+	struct inotify_channel inoti;
 
     /* misc usage */
     pid_t notify_pid;
@@ -299,6 +321,11 @@ static struct fuse_opt ftrac_opts[] = {
 	FUSE_OPT_END
 };
 
+static int ftrac_rand_range(const int min, const int max)
+{
+	return min + (rand() % (max - min + 1));
+}
+
 /* use self-defined string hash to release library dependency */
 static unsigned int ftrac_string_hash(const char *str)
 {
@@ -314,7 +341,7 @@ static unsigned int ftrac_string_hash(const char *str)
 }
 
 /*********** process info routines **********/
-static char * get_proc_cmdline(pid_t pid)
+static char * get_proc_cmdline(const pid_t pid)
 {
 	size_t size, i;
 	char line[MAX_LINE], *linep;
@@ -341,7 +368,7 @@ static char * get_proc_cmdline(pid_t pid)
 	return linep;
 }
 
-static pid_t get_proc_ppid(pid_t pid)
+static pid_t get_proc_ppid(const pid_t pid)
 {
 	pid_t ppid;
 	char line[MAX_LINE], *linep;
@@ -366,11 +393,38 @@ static pid_t get_proc_ppid(pid_t pid)
 	return ppid;
 }
 
-/*********** hashtable processing routines **********/
+static char * get_proc_environ(const pid_t pid)
+{
+	size_t size, i;
+	char line[MAX_LINE], *linep;
+	char *filename = g_strdup_printf("/proc/%d/cmdline", pid);
+	FILE *file = fopen(filename, "rb");
+	if (file == NULL)
+		fprintf(stderr, "open file %s failed\n", filename);
+	
+	size = fread(line, sizeof(char), MAX_LINE - 1, file);
+
+	/* replace nulls and newlines in string */
+	for (i=0; i < size; i++) {
+		if (line[i] == '\0' || line[i] == '\n')
+			line[i] = ' ';
+	}
+	if (i < MAX_LINE)
+		line[i-1] = '\0';
+	
+	linep = g_strdup(line);
+	
+	fclose(file);
+	g_free(filename);
+	
+	return linep;
+}
+
+/*********** process table processing routines **********/
 static int proctab_init(hash_table_t hashtable)
 {
 	hashtable->table = g_hash_table_new_full(g_int_hash, g_int_equal,
-		g_free, NULL);
+		g_free, g_free);
 	if (!hashtable->table) {
 		fprintf(stderr, "failed to create hash table\n");
 		return -1;
@@ -386,6 +440,7 @@ static void proctab_destroy(hash_table_t hashtable)
 	pthread_mutex_destroy(&hashtable->lock);
 }
 
+static int inotify_channel_addwatch(struct ftrac *ft, const pid_t pid);
 static void proctab_insert(hash_table_t hashtable, pid_t pid)
 {
 	if (pid == 0)	/* process 1 is init [2] */
@@ -397,14 +452,31 @@ static void proctab_insert(hash_table_t hashtable, pid_t pid)
 		char *cmdline = get_proc_cmdline(pid);
 		pid_t ppid = get_proc_ppid(pid);
 		pidp = g_new(int, 1);
-		int *liveness = g_new(int, 1);
+		int *liveness= g_new(int, 1);
 		*pidp = pid;
 		*liveness = 1;
 		pthread_mutex_lock(&hashtable->lock);
 		g_hash_table_insert(hashtable->table, pidp, liveness);
 		pthread_mutex_unlock(&hashtable->lock);
-		fprintf(ftrac.procmap, "%d:%d:%s\n", pid, ppid, cmdline);
+		fprintf(ftrac.procmap, "%d:%d:%s:", pid, ppid, cmdline);
 		g_free(cmdline);
+		
+		int c;
+		char path[MAX_FILENAME];
+		FILE *fin;
+		snprintf(path, MAX_FILENAME, "/proc/%d/environ", pid);
+		if (access(path, R_OK) == 0) {
+			fin = fopen(path, "r");
+			if (fin == NULL) {
+				fprintf(stderr, "failed to open file %s\n", path);
+				exit(1);
+			}
+			while ((c=fgetc(fin)) != EOF)
+				fputc(c, ftrac.procmap);
+			fprintf(ftrac.procmap, "\n");
+			fclose(fin);
+			inotify_channel_addwatch(&ftrac, pid);
+		}
 
 		/* recursively insert parent process to process table
 		   this is useful to build workflow tree */
@@ -412,6 +484,7 @@ static void proctab_insert(hash_table_t hashtable, pid_t pid)
 	}
 }
 
+/*********** file table processing routines **********/
 static int filetab_init(hash_table_t hashtable)
 {
 	hashtable->table = g_hash_table_new_full(g_str_hash, g_str_equal,
@@ -446,7 +519,7 @@ static unsigned int filetab_lookup(hash_table_t hashtable, const char *path)
 	return GPOINTER_TO_UINT(p);
 }
 
-/*********** statistic processing routines **********/
+/*********** system call logging routines **********/
 #define get_timespec(timespec) ((double) timespec->tv_sec + \
 	((double) timespec->tv_nsec) * 0.000000001)
 
@@ -583,6 +656,28 @@ static char * stat_fs_to_dictstr(stat_fs_t fs)
 	return buf;
 }
 
+/*********** process logging routines **********/
+static int proc_log_environ(FILE *log, const pid_t pid)
+{
+	char path[MAX_FILENAME];
+	int c;
+	FILE *fin;
+
+	snprintf(path, MAX_FILENAME, "/proc/%d/environ", pid);
+	fin = fopen(path, "r");
+	if (fin == NULL) {
+		fprintf(stderr, "failed to open file %s\n", path);
+		return -1;
+	}
+	fprintf(log, "%d:", pid);
+	while ((c=fgetc(fin)) != EOF)
+		fputc(c, log);
+	fprintf(log, "\n");
+	fclose(fin);
+
+	return 0;
+}
+
 /*********** log processing routines **********/
 static void log_init(struct ftrac *ft)
 {
@@ -627,9 +722,17 @@ static void log_init(struct ftrac *ft)
 		fprintf(stderr, "initial process table failed\n");
 		exit(1);
 	}
+   	
+	char *procdir = g_strdup_printf("%s/proc", ftrac.logdir);
+	res = mkdir(procdir, S_IRUSR | S_IWUSR | S_IXUSR);
+    if (res == -1 && errno != EEXIST) {
+		fprintf(stderr, "failed to create proc log directory %s, %s\n", 
+				procdir, strerror(errno));
+		exit(1);
+    }
 	
 	memset(file, 0, MAX_FILENAME);
-	snprintf(file, MAX_FILENAME, "%s/proc.map", ft->logdir);
+	snprintf(file, MAX_FILENAME, "%s/map", procdir);
 	ft->procmap = fopen(file, "wb");
 	if (ft->procmap == NULL) {
 		fprintf(stderr, "open file %s failed\n", file);
@@ -641,13 +744,23 @@ static void log_init(struct ftrac *ft)
 
 	/* process accounting information */
 	memset(file, 0, MAX_FILENAME);
-	snprintf(file, MAX_FILENAME, "%s/proc.stat", ft->logdir);
+	snprintf(file, MAX_FILENAME, "%s/stat", procdir);
 	ft->procstat = fopen(file, "wb");
 	if (ft->procstat == NULL) {
 		fprintf(stderr, "open file %s failed\n", file);
 		exit(1);
 	}
 	fprintf(ft->procstat, "#pid,ppid,live,res,btime,elapsed\n");
+	
+	memset(file, 0, MAX_FILENAME);
+	snprintf(file, MAX_FILENAME, "%s/envrion", procdir);
+	ft->procenviron = fopen(file, "wb");
+	if (ft->procenviron == NULL) {
+		fprintf(stderr, "open file %s failed\n", file);
+		exit(1);
+	}
+	fprintf(ft->procenviron, "#pid,environ\n");
+	g_free(procdir);
 
 	/* file table */
 	res = filetab_init(&ft->filetab);
@@ -705,6 +818,7 @@ static void log_destroy(struct ftrac *ft)
 	filetab_destroy(&ft->filetab);
 	fclose(ft->procmap);
 	fclose(ft->procstat);
+	fclose(ft->procenviron);
 	fclose(ft->filemap);
 	fclose(ft->log);
 	fclose(ft->env);
@@ -871,9 +985,7 @@ static int ctrl_flush(int sockfd)
     return err;
 }
 
-/*
- * Process accounting routines 
- */
+/******* Process accounting routines *******/
 
 /* Get the number of cpus, any better approach? */
 static int get_cpus_num()
@@ -1195,7 +1307,7 @@ static void procacc_destroy(struct ftrac *ft)
 	for (i = 0; i < ft->nlsock; i++) {
 		res = pthread_cancel(ft->nlarr[i].thread);
 		if (res != 0)
-			fprintf(stderr, "faild to cancel thread[%d]\n", i);
+			fprintf(stderr, "failed to cancel thread[%d]\n", i);
 		
 		res = send_netlink_cmd(ft->nlarr[i].sock, ft->familyid, ft->pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
@@ -1218,7 +1330,137 @@ static void procacc_destroy(struct ftrac *ft)
 	close(sock);
 }
 
-/*********** FUSE interfaces **********/
+/********** inotify Routines **********/
+static void * inotify_channel_process(void *data);
+static int inotify_channel_init(struct ftrac *ft)
+{
+	ft->inoti.fd = inotify_init();
+	if (ft->inoti.fd < 0) {
+		fprintf(stderr, "failed to initial inotify channel, %s\n",
+			strerror(errno));
+		return -1;
+	}
+
+	ft->inoti.wdmap = g_hash_table_new_full(g_int_hash, g_int_equal,
+		g_free, g_free);
+	if (!ft->inoti.wdmap) {
+		fprintf(stderr, "failed to create hash table\n");
+		return -1;
+	}
+	pthread_mutex_init(&(ft->inoti.lock), NULL);
+
+	/* start listening thread */
+	pthread_t thread_id;
+	int res = pthread_create(&thread_id, NULL, inotify_channel_process,
+		(void *) ft);
+	if (res != 0) {
+		fprintf(stderr, "failed to create thread, %s\n", strerror(res));
+		exit(1);
+	}
+	pthread_detach(thread_id);
+	ft->inoti.thread = thread_id;
+
+	return 0;
+}
+
+static void inotify_channel_destroy(struct ftrac *ft)
+{
+//	if (inotify_rm_watch(ft->inoti.fd, ft->inoti.wd))
+//		fprintf(stderr, "failed to rm inotify watch, %s\n",
+//			strerror(errno));
+	int res = pthread_cancel(ft->inoti.thread);
+	if (res != 0)
+		fprintf(stderr, "failed to cancel inotify thread\n");
+
+	g_hash_table_destroy(ft->inoti.wdmap);
+	if (close(ft->inoti.fd))
+		fprintf(stderr, "failed to shut down inotify, %s\n",
+			strerror(errno));
+	pthread_mutex_destroy(&(ft->inoti.lock));
+}
+
+static int inotify_channel_addwatch(struct ftrac *ft, const pid_t pid)
+{
+	char filename[MAX_FILENAME];
+	int wd;
+	
+	g_snprintf(filename, MAX_FILENAME, "/proc/%d/environ", pid);
+	
+	wd = inotify_add_watch(ft->inoti.fd, filename, INOTIFY_PROC_ENV_CHANGED);
+	if (wd < 0) {
+		fprintf(stderr, "failed to add watch to %d, %d, %s\n", pid, errno,
+			strerror(errno));
+		return -1;
+	}
+	DEBUG("add watch for pid %d with wd %d\n", pid, wd);
+	int *wdp = g_new(int, 1);
+	int *pidp = g_new(int, 1);
+	*wdp = wd;
+	*pidp = pid;
+	pthread_mutex_lock(&ft->inoti.lock);
+	g_hash_table_insert(ft->inoti.wdmap, wdp, pidp);
+	pthread_mutex_unlock(&ft->inoti.lock);
+	return 0;
+}
+
+static void inotify_channel_listen(struct ftrac *ft)
+{
+	int len, i = 0;
+	char buf[INOTIFY_EVENT_BUFLEN];
+	
+	len = read(ft->inoti.fd, buf, INOTIFY_EVENT_BUFLEN);
+	if (len < 0) {
+		if (errno == EINTR)
+			fprintf(stderr, "inotify channel interrupted\n");
+		else
+			fprintf(stderr, "inotify read error, %s\n",
+				strerror(errno));
+	} else if (!len)
+			fprintf(stderr, "inotify buffer too small\n");
+	DEBUG("inotify: read %d bytes from %d\n", len, ft->inoti.fd);
+	
+	while (i < len) {
+		struct inotify_event *event;
+		event = (struct inotify_event *) & buf[i];
+		DEBUG("inotify: wd=%d, mask=%u, cookie=%u, len=%u\n",
+			event->wd, event->mask, event->cookie, event->len);
+		DEBUG("inotify: i=%d, len=%u\n", i, len);
+		if (event->len)
+			DEBUG("len=%d, name=%s\n", event->len, event->name);
+
+		/* procesing the event */
+		if (event->mask & INOTIFY_PROC_ENV_CHANGED) {
+			gpointer p = g_hash_table_lookup(ft->inoti.wdmap, &event->wd);
+			if (!p)
+				fprintf(stderr, "failed to retrieve wd %d\n", event->wd);
+			else {
+				pid_t *pidp = (pid_t *) p;
+				proc_log_environ(ft->procenviron, (pid_t) *pidp);
+				//pthread_mutex_lock(&ft->inoti.lock);
+				//g_hash_table_remove(ft->inoti.wdmap, &event->wd);
+				//pthread_mutex_unlock(&ft->inoti.lock);
+				//DEBUG("remove wd %d from map\n", event->wd);
+				/* log environ to process */
+			}
+		}
+		i += INOTIFY_EVENT_SIZE + event->len;
+	}
+}
+
+static void * inotify_channel_process(void *data)
+{
+	int err = 0;
+	struct ftrac *p = (struct ftrac *) data;
+	
+	while (1)
+		inotify_channel_listen(p);
+	
+	err ? pthread_exit((void *) 1) : pthread_exit((void *) 0);	
+}
+
+
+
+/*********** FUSE Interfaces **********/
 static int ftrac_getattr(const char *path, struct stat *stbuf)
 {
 	int res;
@@ -2138,6 +2380,12 @@ static void * ftrac_init(void)
 
 	memset(&ftrac.fs, 0, sizeof(struct stat_fs));
 
+	/* set the seed using the current time and the process ID */
+	srand(time(NULL) + getpid());
+
+	/* initial instance */
+	ftrac.iid = ftrac_rand_range(MAX_RAND_MIN, MAX_RAND_MAX); 
+
 	/* initial log file */
 	log_init(&ftrac);
 
@@ -2146,6 +2394,9 @@ static void * ftrac_init(void)
 
 	/* initial process accounting */
 	procacc_init(&ftrac);
+	
+	/* initial inotify */
+	inotify_channel_init(&ftrac);
 	
     /* 
      * notify the caller we are done for initialization
@@ -2163,6 +2414,7 @@ static void ftrac_destroy(void *data_)
 {
 	(void) data_;
 	
+	inotify_channel_destroy(&ftrac);
 	procacc_destroy(&ftrac); /* must before log_destroy */
 	log_destroy(&ftrac);
 	ctrl_server_destroy(&ftrac);
