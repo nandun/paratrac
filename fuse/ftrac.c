@@ -383,7 +383,7 @@ static int get_file_contents(const char *file, char **contents, size_t *len){
 	fclose(fp);
 	buf[i] = '\0';
 	*contents = buf;
-	*len = i - 1;
+	*len = i;
 
 	return i;
 }
@@ -711,7 +711,8 @@ static int proc_log_environ(FILE *log, const pid_t pid, char **vars,
 				fprintf(log, "%c", ptr[j]);
 				j++;
 			}
-			fprintf(log, " ");
+			if (j > 0)	/* only output when env exist */
+				fprintf(log, " ");
 		}
 		fprintf(log, "\n");
 	}
@@ -1416,6 +1417,9 @@ static void inotify_channel_destroy(struct ftrac *ft)
 	int res = pthread_cancel(ft->inoti.thread);
 	if (res != 0)
 		fprintf(stderr, "failed to cancel inotify thread\n");
+	
+	if (ft->environ)
+		g_strfreev(ft->proclog.vars);
 
 	g_hash_table_destroy(ft->inoti.wdmap);
 	if (close(ft->inoti.fd))
@@ -1514,8 +1518,6 @@ static void * inotify_channel_process(void *data)
 	
 	err ? pthread_exit((void *) 1) : pthread_exit((void *) 0);	
 }
-
-
 
 /*********** FUSE Interfaces **********/
 static int ftrac_getattr(const char *path, struct stat *stbuf)
