@@ -217,6 +217,13 @@ typedef struct hash_table {
 	pthread_mutex_t lock;
 } * hash_table_t;
 
+/* process table entry */
+typedef struct proctab_entry {
+	int ptime;
+	int live;
+	int upid;
+} * proctab_entry;
+
 /* used to pass pid, especially in close() and closedir() */
 typedef struct ftrac_file {
 	unsigned long fd;
@@ -481,6 +488,7 @@ static void proctab_insert(hash_table_t hashtable, pid_t pid)
 		pthread_mutex_lock(&hashtable->lock);
 		g_hash_table_insert(hashtable->table, pidp, liveness);
 		pthread_mutex_unlock(&hashtable->lock);
+		/* TODO: hash pid and ppid ptime */
 		fprintf(ftrac.proclog.map, "%d:%d:%s\n", pid, ppid, cmdline);
 		g_free(cmdline);
 		
@@ -546,8 +554,9 @@ static inline void sc_log_common(stat_sc_t stat, int sysc,
 	
 	/* logging
 	   csv format: stamp,pid,sysc,fid,res,elapsed */
-	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n", stamp, pid, sysc, fid, 
-		res, elapsed);
+	/* TODO: hash pid and ppid ptime */
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n",
+		stamp, pid, sysc, fid, res, elapsed);
 	proctab_insert(&ftrac.proctab, pid);
 
 	/* internal statistics */
@@ -568,8 +577,9 @@ static inline void sc_log_openclose(stat_sc_t scstat, int sysc,
 	struct stat stbuf;
 	off_t fsize = stat(path, &stbuf) == 0 ? stbuf.st_size : -1;
 
-	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%ld,0\n", stamp, pid, sysc, fid, 
-		res, elapsed, fsize);
+	/* TODO: use hash pid and ppid */
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lld,0\n", stamp,
+		pid, sysc, fid, res, elapsed, fsize);
 	proctab_insert(&ftrac.proctab, pid);
 
 	/* internal statistics */
@@ -586,8 +596,9 @@ static inline void sc_log_io(stat_io_t stat, int sysc,
 	double elapsed = get_elapsed(start, end);
 	unsigned long fid = filetab_lookup(&ftrac.filetab, path);
 	
-	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu,%lu\n", stamp, pid, sysc, 
-		fid, res, elapsed, size, offset);
+	/* TODO: use hash pid and ppid */
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%u,%llu\n", stamp,
+		pid, sysc, fid, res, elapsed, size, offset);
 	proctab_insert(&ftrac.proctab, pid);
 
 	stat->stamp = stamp;
@@ -766,7 +777,7 @@ static void log_init(struct ftrac *ft)
 		exit(1);
 	}
 	fprintf(ft->log, "#stamp,pid,sysc,fid,res,elapsed,"
-		"aux1(io:size;link:fid_to),aux2(io:offset)\n");
+		"aux1(io:size;link:fid_to;open/close:fsize),aux2(io:offset)\n");
 	
 	ft->logbuf = malloc(ft->logbufsize);
 	if (ft->logbuf == NULL) {
@@ -813,7 +824,7 @@ static void log_init(struct ftrac *ft)
 		fprintf(stderr, "open file %s failed\n", file);
 		exit(1);
 	}
-	fprintf(ft->proclog.stat, "#pid,ppid,live,res,btime,elapsed\n");
+	fprintf(ft->proclog.stat, "#pid,ppid,live,res,btime,elapsed,cmd\n");
 	
 	memset(file, 0, MAX_FILENAME);
 	snprintf(file, MAX_FILENAME, "%s/envrion", procdir);
@@ -1085,7 +1096,7 @@ static int create_netlink_sock(size_t recvbufsize)
 			sizeof(recvbufsize));
 		if (res < 0) {
 			fprintf(stderr, "failed to set recieve buffer size "
-					"to %lu\n", recvbufsize);
+					"to %u\n", recvbufsize);
 			return -1;
 		}
 
@@ -1178,9 +1189,10 @@ static void taskstats_log(pid_t tid, struct taskstats *st, int liveness)
 		st->ac_btime, st->ac_etime, st->ac_comm);
 	
 	/* task/process still running */
-	fprintf(ftrac.proclog.stat, "%d,%d,%d,%d,%d,%llu,%s\n", st->ac_pid, 
-		st->ac_ppid, liveness, st->ac_exitcode, st->ac_btime, st->ac_etime,
-		st->ac_comm);
+	/* TODO: hash pid and ppid */
+	fprintf(ftrac.proclog.stat, "%d,%d,%d,%d,%d,%llu,%s\n",
+		st->ac_pid, st->ac_ppid, liveness, st->ac_exitcode, st->ac_btime, 
+		st->ac_etime, st->ac_comm);
 	
 	if (!liveness) {
 		/* since process has exited, mark it as dead,

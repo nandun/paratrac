@@ -58,8 +58,9 @@ class FUSETracDB(Database):
         # table: syscall
         cur.execute("DROP TABLE IF EXISTS syscall")
         cur.execute("CREATE TABLE IF NOT EXISTS syscall "
-            "(stamp DOUBLE, pid INTEGER, sysc INTEGER, fid INTEGER, "
-            "res INTEGER, elapsed DOUBLE, aux1 INTEGER, aux2 INTEGER)")
+            "(stamp DOUBLE, iid INTEGER, pid INTEGER, "
+            "sysc INTEGER, fid INTEGER, res INTEGER, elapsed DOUBLE, "
+            "aux1 INTEGER, aux2 INTEGER)")
 
         # table: file
         cur.execute("DROP TABLE IF EXISTS file")
@@ -69,8 +70,9 @@ class FUSETracDB(Database):
         # table: proc
         cur.execute("DROP TABLE IF EXISTS proc")
         cur.execute("CREATE TABLE IF NOT EXISTS proc "
-            "(pid INTEGER, ppid INTEGER, live INTEGER, res INTEGER, "
-            "btime FLOAT, elapsed FLOAT, cmdline TEXT)")
+            "(iid INTGER, pid INTEGER, ppid INTEGER, "
+            "live INTEGER, res INTEGER, btime FLOAT, elapsed FLOAT, "
+            "cmdline TEXT, environ TEXT)")
 
     def import_data(self, datadir=None):
         if datadir is None:
@@ -85,13 +87,19 @@ class FUSETracDB(Database):
             cur.execute("INSERT INTO env VALUES (?,?)", 
                 line.strip().split(":", 1))
         envFile.close()
+
+        # get instance id for further usage
+        iids = str(self.env_get_value("iid")) # note that iids is a string
         
         # import trace log data
         traceFile = open("%s/trace.log" % datadir)
         assert traceFile.readline().startswith("#")
         for line in traceFile.readlines():
-            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?)",
-                line.strip().split(","))
+            values = line.strip().split(",")
+            values.insert(1, iids) # insert iid to the 2nd value
+            print values
+            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", 
+                values)
         traceFile.close()
 
         # import file map data
@@ -103,7 +111,7 @@ class FUSETracDB(Database):
         filemapFile.close()
 
         # import proc info data
-        procmapFile = open("%s/proc.map" % datadir)
+        procmapFile = open("%s/proc/map" % datadir)
         assert procmapFile.readline().startswith("#")
         assert procmapFile.readline().startswith("0:system init")
         procmap = {}
@@ -115,21 +123,29 @@ class FUSETracDB(Database):
             except ValueError:
                 sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
                 continue
-            procmap[pid] = (ppid, cmdline)
+            procmap[pid] = [ppid, cmdline]
         procmapFile.close()
 
-        procinfoFile = open("%s/proc.stat" % datadir)
-        assert procinfoFile.readline().startswith("#")
-        for line in procinfoFile.readlines():
+        procstatFile = open("%s/proc/stat" % datadir)
+        assert procstatFile.readline().startswith("#")
+        for line in procstatFile.readlines():
             pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)
-            # must use ppid in procmap
+            # must use ppid in proc/map
             # taskstat consider ppid of process as 1, since its parent dead
             real_ppid, cmdline = procmap[pid]
-            cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
-                (pid, real_ppid, live, res, btime, elapsed, cmdline))
-        procinfoFile.close()
+        procstatFile.close()
+            
+            #cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
+            #    (pid, real_ppid, live, res, btime, elapsed, cmdline))
     
     # trace routines
+    def env_get_value(self, item):
+        cur = self.db.cursor()
+        cur.execute("SELECT value FROM env WHERE item=?", (item,))
+        res = cur.fetchone()
+        if res is None: return None
+        else: return res[0]
+        
     def sysc_select(self, sysc, fields="*"):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM syscall WHERE sysc=?" % fields, (sysc,))
