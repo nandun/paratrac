@@ -1590,14 +1590,14 @@ static int ftrac_fgetattr(const char *path, struct stat *stbuf,
 {
 	int fd, res;
 
-#ifdef FTRAC_TRACE_NONE
-	(void) path;
-	fd = fi->fh;
-#else
+#ifdef FTRAC_TRACE_ENABLED
 	struct timespec start, end;
 	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
 	fd = ff->fd;
 	clock_gettime(FTRAC_CLOCK, &start);
+#else
+	fd = fi->fh;
+	(void) path;
 #endif
 	
 	res = fstat(fd, stbuf);
@@ -2438,7 +2438,7 @@ static int ftrac_listxattr(const char *path, char *list, size_t size)
     
 	res = llistxattr(path, list, size);
 	
-#ifdef FTRAC_TRACE_NONE
+#ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
 	sc_log_common(&ftrac.fs.listxattr, SYSC_FS_LISTXATTR, &start, &end,
