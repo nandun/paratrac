@@ -256,7 +256,8 @@ struct ftrac {
 	uid_t uid;
 	gid_t gid;
 	pid_t pid;
-	int iid;	/* ftrac instance id */
+	int iid;	/* instance id */
+	struct timespec itime; /* instance start time */
 
 	/* control server */
 	char *sessiondir;
@@ -543,10 +544,8 @@ static inline void sc_log_common(stat_sc_t stat, int sysc,
 	double elapsed = get_elapsed(start, end);
 	unsigned long fid = filetab_lookup(&ftrac.filetab, path);
 	
-	/*
-		logging
-		csv format: stamp,pid,sysc,fid,res,elapsed
-	*/
+	/* logging
+	   csv format: stamp,pid,sysc,fid,res,elapsed */
 	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n", stamp, pid, sysc, fid, 
 		res, elapsed);
 	proctab_insert(&ftrac.proctab, pid);
@@ -555,6 +554,28 @@ static inline void sc_log_common(stat_sc_t stat, int sysc,
 	stat->stamp = stamp;
 	stat->cnt ++;
 	stat->esum += elapsed;
+}
+
+static inline void sc_log_openclose(stat_sc_t scstat, int sysc,
+	struct timespec *start, struct timespec *end, int pid, int res,
+	const char *path)
+{
+	double stamp = get_timespec(start);
+	double elapsed = get_elapsed(start, end);
+	unsigned long fid = filetab_lookup(&ftrac.filetab, path);
+	
+	/* logging file size */
+	struct stat stbuf;
+	off_t fsize = stat(path, &stbuf) == 0 ? stbuf.st_size : -1;
+
+	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%ld,0\n", stamp, pid, sysc, fid, 
+		res, elapsed, fsize);
+	proctab_insert(&ftrac.proctab, pid);
+
+	/* internal statistics */
+	scstat->stamp = stamp;
+	scstat->cnt ++;
+	scstat->esum += elapsed;
 }
 
 static inline void sc_log_io(stat_io_t stat, int sysc, 
@@ -821,11 +842,11 @@ static void log_init(struct ftrac *ft)
 	fprintf(ft->filemap, "#fid,path\n");
 
 	/* start logging */
-	struct timespec start;
+	struct timespec *start = &(ft->itime);
 	struct passwd *pwd;
 	struct utsname platform;
 
-	clock_gettime(FTRAC_CLOCK, &start);
+	clock_gettime(FTRAC_CLOCK, start);
 	if (uname(&platform) == -1)
 		fprintf(stderr, "get platform info failed.\n");
 	pwd = getpwuid(getuid());
@@ -837,12 +858,14 @@ static void log_init(struct ftrac *ft)
 		"hostname:%s\n"
 		"user:%s\n"
 		"uid:%d\n"
+		"iid:%d\n"
 		, 
-		((double) start.tv_sec + ((double) start.tv_nsec) * 0.000000001),
+		get_timespec(start),
 		platform.sysname, platform.release, platform.version,
 		platform.nodename,
 		pwd->pw_name,
-		pwd->pw_uid);
+		pwd->pw_uid,
+		ft->iid);
 
 	fflush(ft->env);
 }
@@ -2125,7 +2148,7 @@ static int ftrac_open(const char *path, struct fuse_file_info *fi)
 	clock_gettime(FTRAC_CLOCK, &end);
 	
 	res = fd == -1 ? -1 : 0;
-	sc_log_common(&ftrac.fs.open, SYSC_FS_OPEN, &start, &end, pid, res, path);
+	sc_log_openclose(&ftrac.fs.open, SYSC_FS_OPEN, &start, &end, pid, res, path);
 #endif
 
 	if (fd == -1)
@@ -2238,7 +2261,7 @@ static int ftrac_flush(const char *path, struct fuse_file_info *fi)
 	
 #ifdef FTRAC_TRACE_ENABLED
 	struct timespec start, end;
-	ftrac_file_t ff = (ftrac_file_t) fi->fh;
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
 	
 	fd = ff->fd;
 	clock_gettime(FTRAC_CLOCK, &start);
@@ -2272,7 +2295,7 @@ static int ftrac_close(const char *path, struct fuse_file_info *fi)
 
 #ifdef FTRAC_TRACE_ENABLED
 	struct timespec start, end;
-	ftrac_file_t ff = (ftrac_file_t) fi->fh;
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
 	
 	fd = ff->fd;
 	pid_t pid = ff->pid;
@@ -2288,7 +2311,7 @@ static int ftrac_close(const char *path, struct fuse_file_info *fi)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sc_log_common(&ftrac.fs.close, SYSC_FS_CLOSE, &start, &end, pid, 0, path);
+	sc_log_openclose(&ftrac.fs.close, SYSC_FS_CLOSE, &start, &end, pid, 0, path);
 #endif
 
 	return 0;
