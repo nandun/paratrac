@@ -106,7 +106,7 @@ class FUSETracDB(Database):
         for line in filemapFile.readlines():
             values = line.strip().split(":", 1)
             values.insert(0, iids)
-            cur.execute("INSERT INTO file VALUES (?,?)", values)
+            cur.execute("INSERT INTO file VALUES (?,?,?)", values)
         filemapFile.close()
 
         # import proc info data
