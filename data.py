@@ -97,9 +97,7 @@ class FUSETracDB(Database):
         for line in traceFile.readlines():
             values = line.strip().split(",")
             values.insert(1, iids) # insert iid to the 2nd value
-            print values
-            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", 
-                values)
+            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", values)
         traceFile.close()
 
         # import file map data
@@ -129,14 +127,24 @@ class FUSETracDB(Database):
         procstatFile = open("%s/proc/stat" % datadir)
         assert procstatFile.readline().startswith("#")
         for line in procstatFile.readlines():
-            pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)
+            values = line.strip().split(",", 6)
+            pid = values[0]
             # must use ppid in proc/map
             # taskstat consider ppid of process as 1, since its parent dead
             real_ppid, cmdline = procmap[pid]
+            values[1] = real_ppid
+            values[6] = cmdline # check something?
+            procmap[pid] = values
         procstatFile.close()
-            
-            #cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
-            #    (pid, real_ppid, live, res, btime, elapsed, cmdline))
+
+        procenvironFile = open("%s/proc/environ" % datadir)
+        assert procenvironFile.readline().startswith("#")
+        for line in procenvironFile.readlines():
+            stamp, pid, environ = line.strip().split(",", 2)
+            values = procmap[pid]
+            values.insert(0, iids)
+            values.append(environ)
+            cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", values)
     
     # trace routines
     def env_get_value(self, item):

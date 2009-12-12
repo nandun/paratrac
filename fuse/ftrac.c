@@ -827,7 +827,7 @@ static void log_init(struct ftrac *ft)
 	fprintf(ft->proclog.stat, "#pid,ppid,live,res,btime,elapsed,cmd\n");
 	
 	memset(file, 0, MAX_FILENAME);
-	snprintf(file, MAX_FILENAME, "%s/envrion", procdir);
+	snprintf(file, MAX_FILENAME, "%s/environ", procdir);
 	ft->proclog.environ = fopen(file, "wb");
 	if (ft->proclog.environ == NULL) {
 		fprintf(stderr, "open file %s failed\n", file);
