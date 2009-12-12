@@ -65,7 +65,7 @@ class FUSETracDB(Database):
         # table: file
         cur.execute("DROP TABLE IF EXISTS file")
         cur.execute("CREATE TABLE IF NOT EXISTS file"
-            "(fid INTEGER, path TEXT)")
+            "(iid INTEGER, fid INTEGER, path TEXT)")
         
         # table: proc
         cur.execute("DROP TABLE IF EXISTS proc")
@@ -104,8 +104,9 @@ class FUSETracDB(Database):
         filemapFile = open("%s/file.map" % datadir)
         assert filemapFile.readline().startswith("#")
         for line in filemapFile.readlines():
-            cur.execute("INSERT INTO file VALUES (?,?)",
-                line.strip().split(":", 1))
+            values = line.strip().split(":", 1)
+            values.insert(0, iids)
+            cur.execute("INSERT INTO file VALUES (?,?)", values)
         filemapFile.close()
 
         # import proc info data
