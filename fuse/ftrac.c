@@ -1183,8 +1183,14 @@ static void taskstats_log(pid_t tid, struct taskstats *st, int liveness)
 	if (!p)
 		return;
 	
+	/* Thread exit */
+	if (st->ac_pid == 0 && st->ac_btime == 0) {
+		DEBUG("Last thread of task group %d exited.", tid);
+		return;
+	}
+
 	/* only log the process accessing the mountpoint */
-	DEBUG("pid=%d, ppid=%d, live=%d, res=%d, btime=%d, etime=%llu, cmm=%s\n", 
+	DEBUG("pid=%d, ppid=%d, live=%d, res=%d, btime=%d, etime=%llu, cmd=%s\n", 
 		st->ac_pid, st->ac_ppid, liveness, st->ac_exitcode, 
 		st->ac_btime, st->ac_etime, st->ac_comm);
 	
