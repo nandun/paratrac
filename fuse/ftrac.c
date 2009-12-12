@@ -2338,23 +2338,28 @@ static int ftrac_close(const char *path, struct fuse_file_info *fi)
 static int ftrac_fsync(const char *path, int isdatasync,
 		     struct fuse_file_info *fi)
 {
-	int res;
+	int fd, res;
 	(void) path;
 
 #ifdef FTRAC_TRACE_ENABLED
 	struct timespec start, end;
+	ftrac_file_t ff = (ftrac_file_t) (uintptr_t) fi->fh;
 	
+	fd = ff->fd;
 	clock_gettime(FTRAC_CLOCK, &start);
+#else
+	fd = fi->fh;
+	(void) path;
 #endif
 
 #ifndef HAVE_FDATASYNC
 	(void) isdatasync;
 #else
 	if (isdatasync)
-		res = fdatasync(fi->fh);
+		res = fdatasync(fd);
 	else
 #endif
-		res = fsync(fi->fh);
+		res = fsync(fd);
 
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
