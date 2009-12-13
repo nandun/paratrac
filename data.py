@@ -1,6 +1,6 @@
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
-# Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+# Copyright (C) 2009,2010  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -48,6 +48,9 @@ class Database:
         return self.db.cursor()
 
 class FUSETracDB(Database):
+    def __init__(self, dbfile):
+        Database.__init__(self, dbfile)
+
     def create_tables(self):
         cur = self.cur
         # table: env
@@ -146,6 +149,31 @@ class FUSETracDB(Database):
             values.insert(0, iids)
             values.append(environ)
             cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", values)
+
+    def merge_dbs(self, datadir=None):
+        if datadir is None:
+            datadir = os.path.dirname(self.dbfile)
+
+        cur = self.cursor()
+
+        dbs = []
+        for f in os.listdir(datadir):
+            if f.endswith(".db"): dbs.append(f)
+        dbs.remove("merged.db")
+
+        for db in dbs:
+            print "%s/%s" % (datadir, db)
+            dbh = FUSETracDB("%s/%s" % (datadir, db))
+            # merge file db
+            for e in dbh.file_fetchall():
+                cur.execute("INSERT INTO file VALUES (?,?,?)", e)
+            # merge proc db
+            for e in dbh.proc_fetchall():
+                cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", e)
+            # merge syscall db
+            for e in dbh.sysc_fetchall():
+                cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", e)
+            dbh.close()
     
     # trace routines
     def env_get_value(self, item):
@@ -154,6 +182,11 @@ class FUSETracDB(Database):
         res = cur.fetchone()
         if res is None: return None
         else: return res[0]
+    
+    def sysc_fetchall(self, fields="*"):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM syscall" % fields)
+        return cur.fetchall()
         
     def sysc_select(self, sysc, fields="*"):
         cur = self.db.cursor()
