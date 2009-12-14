@@ -1,3 +1,0 @@
-MAKEFILE_LIST = test
-MAKE = make
-PWD = /home/shibata/racc
