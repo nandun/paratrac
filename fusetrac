@@ -70,6 +70,10 @@ def parse_argv(argv):
         dest="importlog", metavar="PATH", default=None, 
         help="import log to database")
     
+    parser.add_option("--merge-dbs", action="store", type="string",
+        dest="mergedbs", metavar="PATH", default=None, 
+        help="merge databases")
+    
     # Plot
     parser.add_option("-d", "--data", action="store", type="string",
         dest="data", metavar="PATH", default=None, 
@@ -191,6 +195,11 @@ def main():
         database.create_tables()
         database.import_data()
         return 0
+
+    if opts.mergedbs:
+        database = FUSETracDB("%s/merged.db" % opts.mergedbs)
+        database.create_tables()
+        database.merge_dbs()
 
     # Report
     if opts.reportlist:

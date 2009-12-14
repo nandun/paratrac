@@ -1,6 +1,6 @@
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
-# Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+# Copyright (C) 2009,2010  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -48,6 +48,9 @@ class Database:
         return self.db.cursor()
 
 class FUSETracDB(Database):
+    def __init__(self, dbfile):
+        Database.__init__(self, dbfile)
+
     def create_tables(self):
         cur = self.cur
         # table: env
@@ -58,19 +61,21 @@ class FUSETracDB(Database):
         # table: syscall
         cur.execute("DROP TABLE IF EXISTS syscall")
         cur.execute("CREATE TABLE IF NOT EXISTS syscall "
-            "(stamp DOUBLE, pid INTEGER, sysc INTEGER, fid INTEGER, "
-            "res INTEGER, elapsed DOUBLE, aux1 INTEGER, aux2 INTEGER)")
+            "(stamp DOUBLE, iid INTEGER, pid INTEGER, "
+            "sysc INTEGER, fid INTEGER, res INTEGER, elapsed DOUBLE, "
+            "aux1 INTEGER, aux2 INTEGER)")
 
         # table: file
         cur.execute("DROP TABLE IF EXISTS file")
         cur.execute("CREATE TABLE IF NOT EXISTS file"
-            "(fid INTEGER, path TEXT)")
+            "(iid INTEGER, fid INTEGER, path TEXT)")
         
         # table: proc
         cur.execute("DROP TABLE IF EXISTS proc")
         cur.execute("CREATE TABLE IF NOT EXISTS proc "
-            "(pid INTEGER, ppid INTEGER, live INTEGER, res INTEGER, "
-            "btime FLOAT, elapsed FLOAT, cmdline TEXT)")
+            "(iid INTGER, pid INTEGER, ppid INTEGER, "
+            "live INTEGER, res INTEGER, btime FLOAT, elapsed FLOAT, "
+            "cmdline TEXT, environ TEXT)")
 
     def import_data(self, datadir=None):
         if datadir is None:
@@ -85,25 +90,30 @@ class FUSETracDB(Database):
             cur.execute("INSERT INTO env VALUES (?,?)", 
                 line.strip().split(":", 1))
         envFile.close()
+
+        # get instance id for further usage
+        iids = str(self.env_get_value("iid")) # note that iids is a string
         
         # import trace log data
         traceFile = open("%s/trace.log" % datadir)
         assert traceFile.readline().startswith("#")
         for line in traceFile.readlines():
-            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?)",
-                line.strip().split(","))
+            values = line.strip().split(",")
+            values.insert(1, iids) # insert iid to the 2nd value
+            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", values)
         traceFile.close()
 
         # import file map data
         filemapFile = open("%s/file.map" % datadir)
         assert filemapFile.readline().startswith("#")
         for line in filemapFile.readlines():
-            cur.execute("INSERT INTO file VALUES (?,?)",
-                line.strip().split(":", 1))
+            values = line.strip().split(":", 1)
+            values.insert(0, iids)
+            cur.execute("INSERT INTO file VALUES (?,?,?)", values)
         filemapFile.close()
 
         # import proc info data
-        procmapFile = open("%s/proc.map" % datadir)
+        procmapFile = open("%s/proc/map" % datadir)
         assert procmapFile.readline().startswith("#")
         assert procmapFile.readline().startswith("0:system init")
         procmap = {}
@@ -115,21 +125,69 @@ class FUSETracDB(Database):
             except ValueError:
                 sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
                 continue
-            procmap[pid] = (ppid, cmdline)
+            procmap[pid] = [ppid, cmdline]
         procmapFile.close()
 
-        procinfoFile = open("%s/proc.stat" % datadir)
-        assert procinfoFile.readline().startswith("#")
-        for line in procinfoFile.readlines():
-            pid, ppid, live, res, btime, elapsed = line.strip().split(",", 5)
-            # must use ppid in procmap
+        procstatFile = open("%s/proc/stat" % datadir)
+        assert procstatFile.readline().startswith("#")
+        for line in procstatFile.readlines():
+            values = line.strip().split(",", 6)
+            pid = values[0]
+            # must use ppid in proc/map
             # taskstat consider ppid of process as 1, since its parent dead
             real_ppid, cmdline = procmap[pid]
-            cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?)",
-                (pid, real_ppid, live, res, btime, elapsed, cmdline))
-        procinfoFile.close()
+            values[1] = real_ppid
+            values[6] = cmdline # check something?
+            procmap[pid] = values
+        procstatFile.close()
+
+        procenvironFile = open("%s/proc/environ" % datadir)
+        assert procenvironFile.readline().startswith("#")
+        for line in procenvironFile.readlines():
+            stamp, pid, environ = line.strip().split(",", 2)
+            values = procmap[pid]
+            values.insert(0, iids)
+            values.append(environ)
+            cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", values)
+
+    def merge_dbs(self, datadir=None):
+        if datadir is None:
+            datadir = os.path.dirname(self.dbfile)
+
+        cur = self.cursor()
+
+        dbs = []
+        for f in os.listdir(datadir):
+            if f.endswith(".db"): dbs.append(f)
+        dbs.remove("merged.db")
+
+        for db in dbs:
+            print "%s/%s" % (datadir, db)
+            dbh = FUSETracDB("%s/%s" % (datadir, db))
+            # merge file db
+            for e in dbh.file_fetchall():
+                cur.execute("INSERT INTO file VALUES (?,?,?)", e)
+            # merge proc db
+            for e in dbh.proc_fetchall():
+                cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", e)
+            # merge syscall db
+            for e in dbh.sysc_fetchall():
+                cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", e)
+            dbh.close()
     
     # trace routines
+    def env_get_value(self, item):
+        cur = self.db.cursor()
+        cur.execute("SELECT value FROM env WHERE item=?", (item,))
+        res = cur.fetchone()
+        if res is None: return None
+        else: return res[0]
+    
+    def sysc_fetchall(self, fields="*"):
+        cur = self.db.cursor()
+        cur.execute("SELECT %s FROM syscall" % fields)
+        return cur.fetchall()
+        
     def sysc_select(self, sysc, fields="*"):
         cur = self.db.cursor()
         cur.execute("SELECT %s FROM syscall WHERE sysc=?" % fields, (sysc,))
