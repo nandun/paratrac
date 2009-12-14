@@ -1,0 +1,28 @@
+2009-12-08 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Add random tracer instance id and process start time
+	* Add periodically tracing for environment variables
+
+2009-07-08 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Add process accounting by using netlink
+
+2009-06-22 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Process tree graph (graphviz and cytoscape)
+	* Workflow graph (cytoscape)
+	* v0.2 release
+
+2009-05-09 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Add show/hide all series/values control to charts
+	* Add poll rate multiplier
+	* Statistics for total system call elapsed time
+	* Invoke ftrac by mount/umount command
+	* Report to pretty html by amCharts
+	* Add system call statistics
+	* Bug fixes
+
+2009-05-06 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* Paramark v0.1 release
+	* fusetrac.py with basic file system calls tracking by FUSE
+	* Monitoring by curses interface
+	* Paramark v0.1 release
+	* fusetrac.py with basic file system calls tracking by FUSE
+	* Monitoring by curses interface
