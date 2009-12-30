@@ -17,6 +17,7 @@
 #############################################################################
 
 import sys
+import os
 import optparse
 import textwrap
 import time
@@ -138,6 +139,28 @@ def smart_second(usec):
         return (usec/MIN, "min")
     return (usec/HOUR, "hour")
 
+def smart_makedirs(path, confirm=True):
+    try: os.makedirs(path)
+    except OSError, err:
+        if err.errno == errno.EEXIST:
+            sys.stderr.write("warning: directory %s exists\n" 
+                % os.path.abspath(path))
+            if confirm:
+                ans = raw_input("Overwrite [Y/n/path]? ").lower()
+                if ans == 'n':
+                    sys.stderr.write("Aborting ...\n")
+                    sys.exit(1)
+                elif ans == 'y': pass
+                else: return smart_makedirs(ans, confirm)
+            else:
+                sys.stderr.write("overwriting %s ...\n"
+                    % os.path.abspath(path))
+        else:
+            sys.stderr.write("failed to create %s, %s\n" % \
+                (path, os.strerror(err.errno)))
+            sys.exit(1)
+    return path
+
 def string_hash(str):
     hash = 0
     for i in range(0, len(str)):
@@ -191,41 +214,3 @@ def update_opts_kw(obj, restrict, opts, kw):
             if obj.__dict__.has_key(key) and kw.has_key(key):
                 obj.__dict__[key] = kw[key]
 
-# OptionParser help string workaround
-# adapted from Tim Chase's code from following thread
-# http://groups.google.com/group/comp.lang.python/msg/09f28e26af0699b1
-class OptionParserHelpFormatter(optparse.IndentedHelpFormatter):
-    def format_description(self, desc):
-        if not desc: return ""
-        desc_width = self.width - self.current_indent
-        indent = " " * self.current_indent
-        bits = desc.split('\n')
-        formatted_bits = [
-            textwrap.fill(bit, desc_width, initial_indent=indent,
-                susequent_indent=indent)
-            for bit in bits]
-        result = "\n".join(formatted_bits) + "\n"
-        return result
-
-    def format_option(self, opt):
-        result = []
-        opts = self.option_strings[opt]
-        opt_width = self.help_position - self.current_indent - 2
-        if len(opts) > opt_width:
-            opts = "%*s%s\n" % (self.current_indent, "", opts)
-            indent_first = self.help_position
-        else:
-            opts = "%*s%-*s  " % (self.current_indent, "", opt_width, opts)
-            indent_first = 0
-        result.append(opts)
-        if opt.help:
-            help_text = self.expand_default(opt)
-            help_lines = []
-            for para in help_text.split("\n"):
-                help_lines.extend(textwrap.wrap(para, self.help_width))
-            result.append("%*s%s\n" % (indent_first, "", help_lines[0]))
-            result.extend(["%*s%s\n" % (self.help_position, "", line)
-                for line in help_lines[1:]])
-        elif opts[-1] != "\n":
-            result.append("\n")
-        return "".join(result)

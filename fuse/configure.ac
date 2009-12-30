@@ -2,7 +2,7 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT(ftrac, 0.2, dunnan@yl.is.s.u-tokyo.ac.jp)
+AC_INIT(ftrac, 0.3, dunnan@yl.is.s.u-tokyo.ac.jp)
 AM_INIT_AUTOMAKE
 AC_CONFIG_SRCDIR([ftrac.c])
 AC_CONFIG_HEADER([config.h])

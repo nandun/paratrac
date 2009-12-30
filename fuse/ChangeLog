@@ -1,4 +1,10 @@
+2009-12-24 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* remove inotify because it does not work with procfs
+	* add options to retrieve environ from procfs
+
 2009-12-10 Nan Dun  <dunnan@yl.is.s.u-tokyo.ac.jp>
+	* add inotify for process environment variables monitoring
+	* change process log format
 	* add inotify for process environment variables monitoring
 	* change process log format
 

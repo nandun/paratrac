@@ -243,6 +243,7 @@ typedef struct netlink_channel {
 } * netlink_channel_t;
 
 struct ftrac {
+	char *cmdline;
 	char *progname;
 	char *mountpoint;
 	char *cwd;
@@ -929,29 +930,35 @@ static void log_init(void)
 	fprintf(ft->filemap, "#fid,path\n");
 
 	/* start logging */
-	struct passwd *pwd;
 	struct utsname platform;
 
-	clock_gettime(FTRAC_CLOCK, &ft->itime);
 	if (uname(&platform) == -1)
 		fprintf(stderr, "get platform info failed.\n");
-	pwd = getpwuid(getuid());
-		
+	
+	ft->cmdline = get_proc_cmdline(ft->pid);
 	fprintf(ft->env,
-		"prog:ftrac\n"
-		"start:%.9f\n"
+		"version:%s\n"
 		"platform:%s %s %s\n"
 		"hostname:%s\n"
+		"cmdline:%s\n"
+		"mountpoint:%s\n"
 		"user:%s\n"
 		"uid:%d\n"
+		"pid:%d\n"
 		"iid:%d\n"
-		, 
-		get_timespec(&ft->itime),
+		"start:%.9f\n"
+		,
+		PACKAGE_VERSION,
 		platform.sysname, platform.release, platform.version,
 		platform.nodename,
-		pwd->pw_name,
-		pwd->pw_uid,
-		ft->iid);
+		ft->cmdline,
+		ft->mountpoint,
+		ft->username,
+		ft->uid,
+		ft->pid,
+		ft->iid,
+		get_timespec(&ft->itime)
+		);
 
 	fflush(ft->env);
 }
@@ -2482,6 +2489,9 @@ static void * ftrac_init(void)
 	srand(time(NULL) + getpid());
 
 	/* initial instance */
+	clock_gettime(FTRAC_CLOCK, &ftrac.itime);
+	ftrac.uid = getuid();
+	ftrac.pid = getpid();
 	ftrac.iid = ftrac_rand_range(MAX_RAND_MIN, MAX_RAND_MAX); 
 
 	/* initial log file */
@@ -2513,6 +2523,7 @@ static void ftrac_destroy(void *data_)
 	log_destroy(&ftrac);
 	ctrl_server_destroy(&ftrac);
 	remove(ftrac.sessiondir);
+	g_free(ftrac.cmdline);
 	g_free(ftrac.cwd);
     g_free(ftrac.username);
 	g_free(ftrac.environ);
@@ -2633,7 +2644,7 @@ static int ftrac_opt_proc(void *data, const char *arg, int key,
 			exit(1);
 
 		case KEY_VERSION:
-			fprintf(stderr, "FUSETrack version %s\n", PACKAGE_VERSION);
+			fprintf(stderr, "FUSETracer version %s\n", PACKAGE_VERSION);
 #if FUSE_VERSION >= 25
 			fuse_opt_add_arg(outargs, "--version");
 			ftrac_fuse_main(outargs);
@@ -2701,7 +2712,7 @@ int main(int argc, char * argv[])
 	ftrac.nlbufsize = MAX_MSG_SIZE;
 	ftrac.envnchk = 4;
 	ftrac.envcont = 0;
-	
+
 	if (fuse_opt_parse(&args, &ftrac, ftrac_opts, ftrac_opt_proc) == -1)
 		exit(1);
 	
@@ -2777,7 +2788,7 @@ int main(int argc, char * argv[])
 	fuse_opt_insert_arg(&args, 1, tmp);
 	g_free(tmp);
 	g_free(fsname);
-    
+
 	res = ftrac_fuse_main(&args);
 	
 	fuse_opt_free_args(&args);
