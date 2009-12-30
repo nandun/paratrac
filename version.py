@@ -1,6 +1,6 @@
 #############################################################################
 # ParaTrac: Scalable Tracking Tools for Parallel Applications
-# Copyright (C) 2009  Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
+# Copyright (C) 2009,2010 Nan Dun <dunnan@yl.is.s.u-tokyo.ac.jp>
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@
 # ParaTrac Version
 #
 
-PARATRAC_VERSION = 0.2
-PARATRAC_DATE = "2009-06-10"
+PARATRAC_VERSION = 0.3
+PARATRAC_DATE = "2009-12-30"
 PARATRAC_AUTHOR = "Nan Dun"
 PARATRAC_BUG_REPORT = "dunnan@yl.is.s.u-tokyo.ac.jp"
 PARATRAC_WEB = "http://paratrac.googlecode.com/"
