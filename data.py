@@ -71,6 +71,7 @@ class FUSETracDB(Database):
             "(iid INTEGER, fid INTEGER, path TEXT)")
         
         # table: proc
+        # btime is in sec, elapsed is in usec
         cur.execute("DROP TABLE IF EXISTS proc")
         cur.execute("CREATE TABLE IF NOT EXISTS proc "
             "(iid INTGER, pid INTEGER, ppid INTEGER, "

@@ -145,7 +145,7 @@
 #define NLA_DATA(na)		((void *)((char*)(na) + NLA_HDRLEN))
 #define NLA_PAYLOAD(len)	(len - NLA_HDRLEN)
 
-#define MAX_MSG_SIZE	1024
+#define MAX_MSG_SIZE	4096	/* small buffer may lead to msg lost */
 #define MAX_CPUS	32
 
 #define DEBUG(format, args...) \
@@ -1277,7 +1277,7 @@ static void proc_log_task(pid_t tid, struct taskstats *st, int liveness)
 	DEBUG("pid=%d, ppid=%d, live=%d, res=%d, btime=%d, etime=%llu, cmd=%s\n", 
 		st->ac_pid, st->ac_ppid, liveness, st->ac_exitcode, 
 		st->ac_btime, st->ac_etime, st->ac_comm);
-	
+
 	/* task/process still running */
 	/* TODO: hash pid and ppid */
 	fprintf(ftrac.proclog.stat, "%d,%d,%d,%d,%d,%llu,%s\n",
@@ -1364,15 +1364,15 @@ static int recv_netlink(int sock, int liveness)
 
 static void liveproc_log(gpointer key, gpointer value, gpointer data)
 {
-	int sock, *sockp, *liveness, res;
+	int sock, *sockp, res;
 	pid_t *pidp, pid;
 	pidp = (pid_t *) key;
 	pid = *pidp;
 	sockp = (int *) data;
 	sock = *sockp;
-	liveness = (int *) value;
+	proctab_entry_t entry = (proctab_entry_t) value;
 	
-	if (*liveness) {
+	if (entry->live) {
 		res = send_netlink_cmd(sock, ftrac.familyid, ftrac.pid,
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_PID, &pid, sizeof(__u32));
 		if (res < 0)
@@ -1473,17 +1473,17 @@ static void procacc_destroy(struct ftrac *ft)
 	int res, i;
 	
 	for (i = 0; i < ft->nlsock; i++) {
-		res = pthread_cancel(ft->nlarr[i].thread);
-		if (res != 0)
-			fprintf(stderr, "failed to cancel thread[%d]\n", i);
-		
 		res = send_netlink_cmd(ft->nlarr[i].sock, ft->familyid, ft->pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
 			&(ft->nlarr[i].cpumask), strlen(ft->nlarr[i].cpumask) + 1);
 		if (res < 0)
 			fprintf(stderr, "failed to deregister cpumask\n");
-		
 		close(ft->nlarr[i].sock);
+		
+		res = pthread_cancel(ft->nlarr[i].thread);
+		if (res != 0)
+			fprintf(stderr, "failed to cancel thread[%d]\n", i);
+		
 	}
 
 	g_free(ft->nlarr);
@@ -2590,7 +2590,7 @@ static void usage(const char *progname)
 "    -o ftrac_debug         print debug information\n"
 "Process logging options:\n"
 "    -o nlsock=NUM          number of netlink sockets (default: 1)\n"
-"    -o nlbufsize=NUM       netlink buffer size (default: 1024)\n"
+"    -o nlbufsize=NUM       netlink buffer size (default: 4096)\n"
 "    -o environ=VAR:VAR     environment variables (default: all)\n"
 "    -o envnchk=NUM         times to check environ (default: 4)\n"
 "    -o envcont             continue to check environ even if it changes\n"
