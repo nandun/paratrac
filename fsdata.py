@@ -240,6 +240,22 @@ class Database:
     #
     # Specific Query Funtions
     #
+    def alive_procs(self):
+        self.cur.execute("SELECT pid FROM proc WHERE live=1")
+        return map(lambda x:x[0], self.cur.fetchall())
+    
+    def dead_procs(self):
+        self.cur.execute("SELECT pid FROM proc WHERE live=0")
+        return map(lambda x:x[0], self.cur.fetchall())
+    
+    def num_alive_procs(self):
+        self.cur.execute("SELECT COUNT(*) FROM proc WHERE live=1")
+        return self.cur.fetchone()[0]
+    
+    def num_dead_procs(self):
+        self.cur.execute("SELECT COUNT(*) FROM proc WHERE live=0")
+        return self.cur.fetchone()[0]
+        
     def proc_cmdline(self, iid, pid, fullcmd=True):
         self.cur.execute("SELECT cmdline FROM proc "
             "WHERE iid=? and pid=?", (iid, pid))
