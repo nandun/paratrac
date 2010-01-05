@@ -92,14 +92,6 @@ if sys.platform == "win32":
 else:
     timer = time.time
 
-def ws(s):
-    sys.stdout.write(s)
-    sys.stdout.flush()
-
-def es(s):
-    sys.stderr.write(s)
-    sys.stderr.flush()
-
 def parse_datasize(size):
     size = size.upper()
     if size.isdigit():
