@@ -74,7 +74,8 @@ class Plot:
     
     def proc_tree(self, path):
         g = ProcTreeDAG(self.datadir)
-        g.draw(path)
+        g.draw()
+        g.save(path)
 
     def proc_tree_dot(self, path):
         basename = os.path.basename(path)
@@ -98,7 +99,12 @@ class Plot:
             g.write(path, prog="fdp", format=suffix)
         g.write(os.path.splitext(path)[0] + ".dot", format="raw")
     
-    def workflow(self, dir, prefix=None, format="png", prog="dot"):
+    def workflow(self, path):
+        g = WorkflowDAG(self.datadir)
+        g.draw()
+        g.save(path)
+    
+    def workflow_dot(self, dir, prefix=None, format="png", prog="dot"):
         """Produce workflow DAG in various formats
         IN:
           dir: directory to store the figure
@@ -164,6 +170,15 @@ class ProcTreeDAG:
         self.datadir = os.path.abspath(datadir)
         self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
         self.g = nx.DiGraph()
+        # Graph parameters
+        # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
+        self.paras = {}
+        self.paras["node_color"] = 'w'
+        self.paras["font_size"] = 9
+        self.paras["arrowstyle"] = "->"
+        self.alive_procs = []
+        self.dead_procs =[]
+
         self._load()
     
     def __del__(self):
@@ -171,31 +186,103 @@ class ProcTreeDAG:
 
     def _load(self):
         """Generate process tree by traverse database"""
+        labels = {}
         for pid,ppid,live,cmd in self.db.proc_sel("pid,ppid,live,cmdline"):
-            cmd = smart_cmdline(cmd, 0)
-            self.g.add_edge(pid, ppid)
+            labels[pid] = smart_cmdline(cmd, 0)
+            self.g.add_edge(ppid, pid)
+        self.paras["labels"] = labels
 
-    def draw(self, path, format="png", layout="graphviz", prog="neato"):
+    def draw(self, layout="graphviz", prog="neato"):
         #ref: http://networkx.lanl.gov/reference/drawing.html
         assert layout in ["circular", "random", "spectral", "spring", 
             "shell", "graphviz"]
-        draw = eval("nx.draw_%s" % layout)
-        
+
+        layout_func = eval("nx.%s_layout" % layout)
         # Suppress warning of using os.popen3 due to old pygraphviz
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            draw(self.g, prog=prog)
+            pos = layout_func(self.g)
+            nx.draw(self.g, pos=pos, **(self.paras))
+
+    def save(self, path, format=None):
+        pyplot.axis("off")
         pyplot.savefig(path, format=format)
 
+    def num_nodes(self):
+        return self.g.number_of_nodes()
+
+    def num_edges(self):
+        return self.g.number_of_edges()
+
 class WorkflowDAG:
-    def __init__(self):
+    def __init__(self, datadir):
+        self.datadir = os.path.abspath(datadir)
+        self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
         self.g = nx.DiGraph()
+        # Graph parameters
+        # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
+        self.paras = {}
+        self.paras["node_color"] = 'w'
+        self.paras["font_size"] = 9
 
-    def addNode(self, node):
-        self.g.add_node(node)
+        self._load()
+    
+    def __del__(self):
+        self.db.close()
 
-    def addEdge(self, src, dst):
-        self.g.add_edge(src, dst)
+    def _load(self):
+        SC_CREAT = SYSCALL["creat"]
+        SC_OPEN = SYSCALL["open"]
+        SC_CLOSE = SYSCALL["close"]
+        SC_READ = SYSCALL["read"]
+        SC_WRITE = SYSCALL["write"]
+        
+        labels = {}
+        for iid, fid, path in self.db.file_sel("iid,fid,path"):
+            procs_creat = map(lambda x:x[0],
+                self.db.sysc_sel_procs_by_file(iid, SC_CREAT, fid, "pid"))
+            procs_open = map(lambda x:x[0],
+                self.db.sysc_sel_procs_by_file(iid, SC_OPEN, fid, "pid"))
+            procs_close = map(lambda x:x[0],
+                self.db.sysc_sel_procs_by_file(iid, SC_CLOSE, fid, "pid"))
+            procs_read = map(lambda x:x[0],
+                self.db.sysc_sel_procs_by_file(iid, SC_READ, fid, "pid"))
+            procs_write = map(lambda x:x[0],
+                self.db.sysc_sel_procs_by_file(iid, SC_WRITE, fid, "pid"))
+            
+            labels["f%d" % fid] = path
+            # generate read relationships
+            for pid in procs_read:
+                self.g.add_edge("f%d" % fid, "p%d" % pid)
+            
+            for pid in procs_write:
+                self.g.add_edge("p%d" % pid, "f%d" % fid)
+
+            for pid in procs_creat:
+                self.g.add_edge("p%d" % pid, "f%d" % fid)
+    
+    def draw(self, layout="graphviz", prog="dot"):
+        #ref: http://networkx.lanl.gov/reference/drawing.html
+        assert layout in ["circular", "random", "spectral", "spring", 
+            "shell", "graphviz", "pydot"]
+
+        layout_func = eval("nx.%s_layout" % layout)
+        # Suppress warning of using os.popen3 due to old pygraphviz
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            if layout in ["graphviz", "pydot"]:
+                pos = layout_func(self.g, prog=prog)
+            else: pos = layout_func(self.g)
+            nx.draw(self.g, pos=pos, **(self.paras))
+    
+    def save(self, path, format=None, prog="graphviz"):
+        if prog == "pyplot":
+            pyplot.axis("off")
+            pyplot.savefig(path, format=format)
+        else:
+            A = nx.to_agraph(self.g)
+            A.layout("dot")
+            A.draw(path)
 
 # Drawing auxiliary utilities
 def smart_cmdline(cmdline, verbose=0):
