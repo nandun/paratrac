@@ -885,8 +885,6 @@ static void log_init(void)
 		exit(1);
 	}
 	fprintf(ft->proclog.map, "#pid:ppid:cmdline\n");
-	/* insert the first record for root process */
-	fprintf(ft->proclog.map, "0:system init\n");
 
 	/* process accounting information */
 	memset(file, 0, MAX_FILENAME);

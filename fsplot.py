@@ -26,6 +26,7 @@
 
 import os
 import warnings
+import numpy
 import Gnuplot
 import pydot
 
@@ -103,6 +104,7 @@ class Plot:
         g = WorkflowDAG(self.datadir)
         g.draw()
         g.save(path)
+        return g
     
     def workflow_dot(self, dir, prefix=None, format="png", prog="dot"):
         """Produce workflow DAG in various formats
@@ -113,7 +115,6 @@ class Plot:
         OUT:
           the basename of the figure file
         """
-        
         g = pydot.Dot(graph_type="digraph")
 
         FILE_SHAPE = "box"
@@ -173,8 +174,9 @@ class ProcTreeDAG:
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
         self.paras = {}
+        self.paras["node_size"] = 400
         self.paras["node_color"] = 'w'
-        self.paras["font_size"] = 9
+        self.paras["font_size"] = 7
         self.paras["arrowstyle"] = "->"
         self.alive_procs = []
         self.dead_procs =[]
@@ -186,9 +188,18 @@ class ProcTreeDAG:
 
     def _load(self):
         """Generate process tree by traverse database"""
+        # Decide the display unit, decided by dead procs only
+        _, life_avg, _ = self.db.proc_stat("elapsed", live=0)
+        life_avg, life_avg_unit = smart_usec(life_avg)
+        life_scale = eval(life_avg_unit.upper())
+
         labels = {}
-        for pid,ppid,live,cmd in self.db.proc_sel("pid,ppid,live,cmdline"):
-            labels[pid] = smart_cmdline(cmd, 0)
+        for pid,ppid,live,elp,cmd in \
+            self.db.proc_sel("pid,ppid,live,elapsed,cmdline"):
+            if live:
+                labels[pid] = smart_cmdline(cmd, 0)
+            else:
+                labels[pid] = "%s#%s" % (smart_cmdline(cmd, 0), elp/life_scale)
             self.g.add_edge(ppid, pid)
         self.paras["labels"] = labels
 
@@ -251,15 +262,27 @@ class WorkflowDAG:
                 self.db.sysc_sel_procs_by_file(iid, SC_WRITE, fid, "pid"))
             
             labels["f%d" % fid] = path
-            # generate read relationships
-            for pid in procs_read:
-                self.g.add_edge("f%d" % fid, "p%d" % pid)
+            # generate I/O relationships
             
             for pid in procs_write:
                 self.g.add_edge("p%d" % pid, "f%d" % fid)
 
             for pid in procs_creat:
                 self.g.add_edge("p%d" % pid, "f%d" % fid)
+            
+            for pid in procs_read:
+                #TODO: proper set read/write edge
+                # Add read-only edges
+                if not self.g.has_edge("p%d" % pid, "f%d" % fid):
+                    self.g.add_edge("f%d" % fid, "p%d" % pid)
+
+            # generate process parent-child relaships
+            plist = self.db.proc_sel("pid,ppid")
+            plist.remove((1,1))
+            for pid,ppid in plist:
+                self.g.add_edge("p%d" % ppid, "p%d" % pid)
+
+        self.paras["lables"] = labels
     
     def draw(self, layout="graphviz", prog="dot"):
         #ref: http://networkx.lanl.gov/reference/drawing.html
@@ -283,6 +306,25 @@ class WorkflowDAG:
             A = nx.to_agraph(self.g)
             A.layout("dot")
             A.draw(path)
+
+    # Graph manipulation and analysis
+    def nodes_count(self):
+        n_files = n_procs = 0
+        for n in self.g.nodes():
+            if n[0] == 'f': n_files += 1
+            if n[0] == 'p': n_procs += 1
+        return n_files, n_procs
+
+    def degree_stat(self):
+        avg = numpy.mean(map(lambda (n,d):d, self.g.degree_iter()))
+        Cd_avg = numpy.mean(nx.degree_centrality(self.g).values())
+        Cb_avg = numpy.mean(nx.betweenness_centrality(self.g).values())
+        Cc_avg = numpy.mean(nx.closeness_centrality(self.g).values())
+        return avg, Cd_avg, Cb_avg, Cc_avg
+    
+    def casual_order(self):
+        return nx.topological_sort_recursive(self.g)
+        #return nx.dfs_tree(self.g)
 
 # Drawing auxiliary utilities
 def smart_cmdline(cmdline, verbose=0):

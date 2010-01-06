@@ -34,6 +34,7 @@ TB = 1099511627776
 
 # seconds constants in bytes
 # start from usec
+USEC = 1
 MSEC = 1000
 SEC  = 1000000
 MIN  = 60000000
@@ -118,7 +119,7 @@ def smart_datasize(size):
         return (size/GB, "GB")
     return (size/TB, "TB")
 
-def smart_second(usec):
+def smart_usec(usec):
     """ given a time in usecs, return a tuple (num, unit) """
     usec = float(usec)
     if usec < MSEC:
