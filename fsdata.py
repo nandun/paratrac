@@ -27,7 +27,7 @@ import cPickle
 import scipy
 import numpy
 
-from common import SYSCALL
+from common import *
 
 class Database:
     def __init__(self, dbfile, initTables):
@@ -37,6 +37,12 @@ class Database:
         self.tables = []    # all tables in database
 
         if initTables: self.init_tables()
+        
+        # Only attributes can be accurately queried
+        self.SYSC_ATTR = ["iid", "sysc"]
+        self.FILE_ATTR = ["iid", "fid", "path"]
+        self.PROC_ATTR = ["iid", "pid", "ppid", "live", 
+            "res", "cmdline", "environ"]
 
     def __del__(self):
         if self.db is not None:
@@ -79,7 +85,7 @@ class Database:
         self.cur.execute("DROP TABLE IF EXISTS file")
         self.cur.execute("CREATE TABLE IF NOT EXISTS file"
             "(iid INTEGER, fid INTEGER, path TEXT)")
-
+        
     def import_rawdata(self, datadir=None):
         if datadir is None:
             datadir = os.path.dirname(self.dbfile)
@@ -113,7 +119,6 @@ class Database:
         # import process log
         procmapFile = open("%s/proc/map" % datadir)
         assert procmapFile.readline().startswith("#")
-        assert procmapFile.readline().startswith("0:system init")
         procmap = {}
         lineno = 0
         for line in procmapFile.readlines():
@@ -124,9 +129,11 @@ class Database:
                 sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
                 continue
             # WARNING: workaround to fix the cmdline of process 1
-            if pid == "1": cmdline = "/sbin/init"
             procmap[pid] = [iids, pid, ppid, cmdline]
         procmapFile.close()
+        # fix process info
+        procmap["1"][2] = "1"
+        procmap["1"][3] = "/sbin/init"
         
         procstatFile = open("%s/proc/stat" % datadir)
         assert procstatFile.readline().startswith("#")
@@ -149,7 +156,10 @@ class Database:
         procenvironFile.close()
 
         for v in procmap.values():
-            self.cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
+            try:
+                self.cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
+            except:
+                print v
 
         # import file map data
         filemapFile = open("%s/file.map" % datadir)
@@ -228,34 +238,78 @@ class Database:
         return self.cur.fetchall()
 
     # proc table routines
-    def proc_sel(self, fields):
-        self.cur.execute("SELECT %s FROM proc" % fields)
+    def proc_sel(self, columns, **where):
+        qstr = "SELECT %s FROM proc" % columns
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
+            list_intersect([self.PROC_ATTR, where.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
         return self.cur.fetchall()
     
     # file table routines
-    def file_sel(self, fields="*"):
-        self.cur.execute("SELECT %s FROM file" % fields)
+    def file_sel(self, columns, **where):
+        qstr = "SELECT %s FROM file" % columns
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
+            list_intersect([self.FILE_ATTR, where.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
         return self.cur.fetchall()
     
-    #
-    # Specific Query Funtions
-    #
-    def alive_procs(self):
-        self.cur.execute("SELECT pid FROM proc WHERE live=1")
-        return map(lambda x:x[0], self.cur.fetchall())
-    
-    def dead_procs(self):
-        self.cur.execute("SELECT pid FROM proc WHERE live=0")
-        return map(lambda x:x[0], self.cur.fetchall())
-    
-    def num_alive_procs(self):
-        self.cur.execute("SELECT COUNT(*) FROM proc WHERE live=1")
-        return self.cur.fetchone()[0]
-    
-    def num_dead_procs(self):
-        self.cur.execute("SELECT COUNT(*) FROM proc WHERE live=0")
-        return self.cur.fetchone()[0]
+    def files(self, **attr):
+        """Return a list of files IDs that satisfy specified attributes"""
         
+        qstr = "SELECT fid FROM file" # SQL query string
+        if attr == {}:
+            self.cur.execute(qstr)
+            return map(lambda x:x[0], self.cur.fetchall())
+
+        # Select from procs table
+        qstr = "SELECT fid FROM file"
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]),
+            list_intersect([self.FILE_ATTR, attr.keys()])))
+        if wstr != "": qstr = "%s WHERE %s GROUP BY file" % (qstr, wstr)
+        self.cur.execute(qstr)
+        return map(lambda x:x[0], self.cur.fetchall())
+        
+        # TODO:ASAP
+        # Select from sysc table
+
+    def procs(self, **attr):
+        """Return a list of processes IDs that satisfy specified attributes"""
+        
+        qstr = "SELECT pid FROM proc" # SQL query string
+        
+        if attr == {}:
+            self.cur.execute(qstr)
+            return map(lambda x:x[0], self.cur.fetchall())
+        
+        procs = []
+        if "sysc" in attr.keys(): attr["sysc"] = SYSCALL[attr["sysc"]]
+        # Select from syscall table
+        qstr = "SELECT pid FROM syscall"
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]), 
+                list_intersect([self.SYSC_ATTR, attr.keys()])))
+        if wstr != "":
+            qstr = "%s WHERE %s GROUP BY pid" % (qstr, wstr)
+            self.cur.execute(qstr)
+            procs_sc =  map(lambda x:x[0], self.cur.fetchall())
+            procs.extend(procs_sc)
+        
+        # Select from procs table
+        qstr = "SELECT pid FROM proc"
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]),
+            list_intersect([self.PROC_ATTR, attr.keys()])))
+        if wstr != "":
+            qstr = "%s WHERE %s GROUP BY pid" % (qstr, wstr)
+            self.cur.execute(qstr)
+            procs_pc =  map(lambda x:x[0], self.cur.fetchall())
+            if len(procs) > 0:  # procs added from syscall
+                procs = list_intersect([procs, procs_pc])
+            else:
+                procs.extend(procs_pc)
+
+        return procs
+
     def proc_cmdline(self, iid, pid, fullcmd=True):
         self.cur.execute("SELECT cmdline FROM proc "
             "WHERE iid=? and pid=?", (iid, pid))
@@ -269,3 +323,44 @@ class Database:
             "WHERE sysc=? and iid=? and pid=? and fid=?",
             (sysc, iid, pid, fid))
         return self.cur.fetchone()
+
+    def proc_stat(self, column, **attr):
+        """Return (sum, avg, stddev) of column of selected processes"""
+        
+        qstr = "SELECT %s FROM proc" % column
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]),
+            list_intersect([self.PROC_ATTR, attr.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
+        values = map(lambda x:x[0], self.cur.fetchall())
+        return numpy.sum(values), numpy.mean(values), numpy.std(values)
+    
+    def proc_cdf(self, column, numbins=None, **attr):
+        """Return (sum, avg, stddev) of column of selected processes"""
+        
+        qstr = "SELECT %s FROM proc" % column
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]),
+            list_intersect([self.PROC_ATTR, attr.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
+        values = map(lambda x:x[0], self.cur.fetchall())
+        values.sort()
+        total = numpy.sum(values)
+        cdf_data = []
+        curr_sum = 0.0
+        for v in values:
+            curr_sum += v
+            cdf_data.append((v, curr_sum/total))
+        return cdf_data
+    
+    def sysc_stat(self, column, **attr):
+        """Return (sum, avg, stddev) of column of selected processes"""
+        
+        if "sysc" in attr.keys(): attr["sysc"] = SYSCALL[attr["sysc"]]
+        qstr = "SELECT %s FROM syscall" % column
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, attr[k]),
+            list_intersect([self.SYSC_ATTR, attr.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
+        values = map(lambda x:x[0], self.cur.fetchall())
+        return numpy.sum(values), numpy.mean(values), numpy.std(values)

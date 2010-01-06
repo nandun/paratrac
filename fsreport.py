@@ -25,8 +25,9 @@ import sys
 import os
 import time
 import HTMLgen
+import HTMLcolors
 
-import common
+from common import *
 import fsdata
 import fsplot
 
@@ -44,15 +45,19 @@ class Report():
         # report root dir
         self.rdir = os.path.abspath("%s/report" % self.datadir)
         if not os.path.exists(self.rdir):
-            common.smart_makedirs(self.rdir)
+            smart_makedirs(self.rdir)
         # figures dir
         self.fdir = os.path.abspath("%s/figures" % self.rdir)
         if not os.path.exists(self.fdir):
-            common.smart_makedirs(self.fdir)
+            smart_makedirs(self.fdir)
+        # tables dir
+        self.tdir = os.path.abspath("%s/tables" % self.rdir)
+        if not os.path.exists(self.tdir):
+            smart_makedirs(self.tdir)
         # data dir
         self.ddir = os.path.abspath("%s/data" % self.rdir)
         if not os.path.exists(self.ddir):
-            common.smart_makedirs(self.ddir)
+            smart_makedirs(self.ddir)
 
         # unit
         self.unit = {}
@@ -68,7 +73,7 @@ class Report():
     def html(self):
         HTMLgen.PRINTECHO = 0   # turn off HTMLgen verbose
 
-        start = (time.localtime(), common.timer())
+        start = (time.localtime(), timer())
 
         SECTION_SIZE = 2
         SUBSECTION_SIZE = SECTION_SIZE + 1
@@ -95,11 +100,11 @@ class Report():
         for c in self.html_proc_stat(): doc.append(c)
 
         # workflow DAG
-        doc.append(HTMLgen.Heading(SUBSECTION_SIZE, "Workflow DAG"))
+        doc.append(HTMLgen.Heading(SUBSECTION_SIZE, "Workflow Statistics"))
         for c in self.html_workflow_stat(): doc.append(c)
         
         # footnote
-        end = (time.localtime(), common.timer())
+        end = (time.localtime(), timer())
         doc.append(self.html_footnote(start, end))
         
         doc.write("%s/fsreport.html" % self.rdir)
@@ -156,7 +161,7 @@ class Report():
         unit_str = self.unit["latency"][0]
         unit_scale = self.unit["latency"][1]
         for sc in syscalls:
-            sc_num = common.SYSCALL[sc]
+            sc_num = SYSCALL[sc]
             cnt = self.db.sysc_count(sc_num)
             if cnt == 0: continue
             elapsed_sum = self.db.sysc_sum(sc_num,"elapsed")
@@ -199,16 +204,12 @@ class Report():
             "Avg (%s)" % self.unit["latency"][0], 
             "StdDev", "Dist", "CDF"]))
         for sc, cnt, e_sum, e_avg, e_stddev, distf, cdff in stats:
-            distf = os.path.basename(distf)
-            cdff = os.path.basename(cdff)
             table.body.append([HTMLgen.Strong(sc), cnt, float(cnt)/total_cnt,
                 e_sum, e_sum/total_elapsed, e_avg, e_stddev, 
-                HTMLgen.Href("figures/%s" % distf, 
-                    "%s" % distf.split(".")[-1].upper()),
-                HTMLgen.Href("figures/%s" % cdff, 
-                    "%s" % cdff.split(".")[-1].upper())])
+                html_fighref(distf),
+                html_fighref(cdff)])
         table.body.append(map(lambda s:HTMLgen.Strong(s),
-            ["Total", total_cnt, 1.0, total_elapsed, 1.0, 
+            ["Total", total_cnt, 1.0, total_elapsed, 1.0,
             "n/a", "n/a", "n/a", "n/a"]))
         html_contents.append(table)
         
@@ -225,7 +226,7 @@ class Report():
         stats = []
         total_bytes = 0
         for sc in syscalls:
-            sc_num = common.SYSCALL[sc]
+            sc_num = SYSCALL[sc]
             bytes = self.db.sysc_sum(sc_num, "aux1")
             if bytes == 0: continue # ignore operation not executed
             len_avg = self.db.sysc_avg(sc_num, "aux1")
@@ -315,72 +316,213 @@ class Report():
     def html_proc_stat(self):
         """Produce the process tree image and corresponding HTML mark"""
         html_contents = []
+        
+        #TODO:REFINE
+        # Better way to select processes with different I/O operations
 
         # Process statistics
-        n_alive_procs = self.db.num_alive_procs()
-        n_dead_procs = self.db.num_dead_procs()
+        total_procs = self.db.procs()
+        live_procs = self.db.procs(live=1)
+        dead_procs = self.db.procs(live=0)
+
+        creat_procs = self.db.procs(sysc="creat")
+        open_procs = self.db.procs(sysc="open")
+        close_procs = self.db.procs(sysc="close")
+        read_procs = self.db.procs(sysc="read")
+        write_procs = self.db.procs(sysc="write")
+
+        creat_only_procs = list_remove(creat_procs, [read_procs, write_procs])
+        open_only_procs = list_remove(open_procs, [read_procs, write_procs])
         
-        pt_basename = "proc-tree.svg"
+        # create and open procs
+        creat_and_open_procs = list_intersect([creat_procs, open_procs])
+        read_only_procs = list_remove(read_procs, [creat_only_procs, 
+            open_only_procs, write_procs])
+        write_only_procs = list_remove(write_procs, 
+            [creat_only_procs, open_only_procs, read_procs])
+        read_write_procs = list_intersect([read_procs, write_procs])
+        
+        # shared read/write procs, inheri file descriptor
+        shared_read_procs = list_remove(read_procs, 
+            [creat_procs, open_procs])
+        shared_write_procs = list_remove(write_procs, 
+            [creat_procs, open_procs])
+        shared_read_write_procs = list_intersect([shared_read_procs, 
+            shared_write_procs])
+        
+        life_sum, life_avg, life_std = self.db.proc_stat("elapsed", live=0)
+        life_sum, life_sum_unit = smart_usec(life_sum)
+        life_avg, life_avg_unit = smart_usec(life_avg)
+        life_std, life_std_unit = smart_usec(life_avg)
+        life_scale = eval(life_avg_unit.upper())
+        
+        distf = self.plot.points_chart(
+            data=map(lambda (x,y):(x,y/life_scale), 
+                self.db.proc_sel("btime,elapsed", live=0)),
+            prefix="%s/dist-proclife" % self.fdir,
+            title="Distribution of Process Life Time",
+            xlabel="Process Begin Time (seconds)",
+            ylabel="Elapsed (%s)" % life_avg_unit)
+        
+        cdff = self.plot.lines_chart(
+            data=map(lambda (x,y):(x/life_scale,y), 
+                self.db.proc_cdf("elapsed", live=0)),
+            prefix="%s/cdf-proclife" % self.fdir,
+            title="Cumulative Distribution of Process Lifetime",
+            xlabel="Elapsed (%s)" % life_avg_unit,
+            ylabel="Percent")
+
+        pt_basename = "proc-tree.png"
         self.plot.proc_tree("%s/%s" % (self.fdir, pt_basename))
 
         # Summary Table
         table = HTMLgen.Table(tabletitle=None, # Process Tree Table
-            heading=["Summary", "", "",
-                "Life Time", "", "", "",
-                "Procee Tree"],
+            heading=["Status", "", "",
+                "I/O", "", "", "",
+                "Life Time*", "", "", "", "",
+                "Structure"],
             heading_align="left",
             border=0, width="100%", cell_padding=2, cell_spacing=0,
             column1_align="left", cell_align="left")
         table.body = []
         table.body.append(map(lambda s:HTMLgen.Emphasis(s),
-            ["Total", "Alive", "Dead", 
-             "Avg", "StdDev", "Dist", "CDF", 
+            ["Total", "Alive", "Dead",
+             "R-Only", "W-Only", "R/W", "C-Only",
+             "Sum (%s)" % life_sum_unit, 
+             "Avg (%s)" % life_avg_unit, 
+             "StdDev (%s)" % life_std_unit, 
+             "Dist", "CDF", 
              "DAG"]))
         table.body.append([
-            n_alive_procs + n_dead_procs, # Total
-            n_alive_procs, # Alive
-            n_dead_procs,  # Dead
-            "", # Avg
-            "", # StdDev
-            "", # Dist
-            "", # CDF
+            len(total_procs),       # Total
+            len(live_procs),        # Alive
+            len(dead_procs),        # Dead
+            len(read_only_procs),   # Read
+            len(write_only_procs),  # Write
+            len(read_write_procs),  # Read and write
+            len(creat_only_procs) + len(open_only_procs),   # No I/O
+            life_sum,       # Sum
+            life_avg,       # Avg
+            life_std,    # StdDev
+            html_fighref(distf), # Dist
+            html_fighref(cdff), # CDF
             html_fighref(pt_basename)  # DAG
             ])
         html_contents.append(table)
+        notes = HTMLgen.Small("*Only terminated processes.")
+        notes = HTMLgen.Emphasis(notes)
+        html_contents.append(notes)
 
         return html_contents
     
     def html_workflow_stat(self):
         """Produce the process tree image and corresponding HTML mark"""
         html_contents = []
-        wf_basename = "workflow.svg"
-        self.plot.workflow("%s/%s" % (self.fdir, wf_basename))
+
+        wf_basename = "workflow.png"
+
+        # Fetch networkx DAG to performe graph analysis
+        g = self.plot.workflow("%s/%s" % (self.fdir, wf_basename))
+
+        n_files, n_procs = g.nodes_count()
+        
+        d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg = g.degree_stat()
+        
+        tAll, tProc, tFile = self.html_casual_order(g)
         
         table = HTMLgen.Table(tabletitle=None, # Process Tree Table
-            heading=["Summary", "", "",
-                "Life Time", "", "", "",
-                "Workflow"],
+            heading=["Summary", "", "", "",
+                "Degree", "", "", ""],
             heading_align="left",
             border=0, width="100%", cell_padding=2, cell_spacing=0,
             column1_align="left", cell_align="left")
         table.body = []
         table.body.append(map(lambda s:HTMLgen.Emphasis(s),
-            ["Total", "Alive", "Dead", 
-             "Avg", "StdDev", "Dist", "CDF", 
-             "DAG"]))
+            ["Total", "Procs", "Files", "DAG", 
+             "Avg", 
+             html_sub("Avg C", "D"),  # Degree Centrality
+             html_sub("Avg C", "B"),
+             html_sub("Avg C", "C")]))
+
         table.body.append([
-            0, # Total
-            0, # Alive
-            0,  # Dead
-            "", # Avg
-            "", # StdDev
-            "", # Dist
-            "", # CDF
-            html_fighref(wf_basename)  # DAG
+            html_tabhref(tAll, "%d" % (n_procs+n_files)), # Total
+            html_tabhref(tProc, "%d" % n_procs),    # Processes
+            html_tabhref(tFile, "%d" % n_files),    # Files
+            html_fighref(wf_basename),  # DAG
+            "%.2f" % d_avg,     # Avg-Degree
+            "%.2f" % d_Cd_avg,  # Degree Centrality
+            "%.2f" % d_Cb_avg,  # Betweeness
+            "%.2f" % d_Cc_avg,  # Closeness
             ])
         html_contents.append(table)
 
         return html_contents
+    
+    def html_casual_order(self, wfg):
+        """Generate process and files casual order lists"""
+        
+        SECTION_SIZE = 3
+        headstr = "Processes and Files Casual Order"
+        docAll = HTMLgen.SimpleDocument(title=headstr)
+        docAll.append(HTMLgen.Heading(SECTION_SIZE, headstr))
+        
+        headstr = "Processes Casual Order"
+        docProc = HTMLgen.SimpleDocument(title=headstr)
+        docProc.append(HTMLgen.Heading(SECTION_SIZE, headstr))
+        
+        headstr = "Files Casual Order"
+        docFile = HTMLgen.SimpleDocument(title="Files Casual Order")
+        docFile.append(HTMLgen.Heading(SECTION_SIZE, headstr))
+        
+        tableAll = HTMLgen.Table(tabletitle=None,
+            heading=["Index","ID","Description"],
+            heading_align="left",
+            border=1, width="100%", cell_padding=1, cell_spacing=0,
+            column1_align="left", cell_align="left")
+        
+        tableProc = HTMLgen.Table(tabletitle=None,
+            heading=["Index","Pid","Command line"],
+            heading_align="left",
+            border=1, width="100%", cell_padding=1, cell_spacing=0,
+            column1_align="left", cell_align="left")
+        
+        tableFile = HTMLgen.Table(tabletitle=None,
+            heading=["Index","ID","Path"],
+            heading_align="left",
+            border=1, width="100%", cell_padding=1, cell_spacing=0,
+            column1_align="left", cell_align="left")
+
+        tableAll.body = []
+        tableProc.body = []
+        tableFile.body = []
+        
+        nAll = nProc = nFile = 0
+        for n in wfg.casual_order():
+            type, id = n[0], int(n[1:])
+            nAll += 1
+            if type == "p":
+                nProc += 1
+                desc = "%s" % self.db.proc_sel("cmdline", pid=id)[0]
+                tableProc.body.append([nProc, id, desc])
+                tableAll.body.append([nAll, id, desc])
+            if type == "f":
+                nFile += 1
+                desc = "%s" % self.db.file_sel("path", fid=id)[0]
+                tableFile.body.append([nFile, id, desc])
+                f = HTMLgen.Font(color=HTMLcolors.RED1)
+                tableAll.body.append([nAll, f(id), f(desc)])
+        
+        docAll.append(tableAll)
+        docProc.append(tableProc)
+        docFile.append(tableFile)
+
+        docAllpath = "%s/casual-order-all.html" % self.tdir
+        docProcpath = "%s/casual-order-procs.html" % self.tdir
+        docFilepath = "%s/casual-order-files.html" % self.tdir
+        docAll.write(docAllpath)
+        docProc.write(docProcpath)
+        docFile.write(docFilepath)
+        return docAllpath, docProcpath, docFilepath
 
     def html_footnote(self, start, end):
         text = HTMLgen.Small()
@@ -409,6 +551,17 @@ def html_fighref(filename, figsdir="figures"):
     return HTMLgen.Href("%s/%s" % (figsdir, basename),
         "%s" % basename.split(".")[-1].upper())
 
+def html_tabhref(filename, text="HTML", tabsdir="tables"):
+    """return an HTML href suffix string link to the target table 
+    file"""
+    basename = os.path.basename(filename)
+    return HTMLgen.Href("%s/%s" % (tabsdir, basename), text)
+
+def html_sub(maintxt, subtxt):
+    t = HTMLgen.Text(maintxt)
+    t.append(HTMLgen.Sub(subtxt))
+    return t
+
 ##########################################################################
 # Default configure string
 # Hard-coded for installation convenience
@@ -435,5 +588,6 @@ imgtype = 'png'
 def main():
     r = Report(sys.argv[1])
     r.html()
+    #r.html_proc_stat()
 
 main()
