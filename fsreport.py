@@ -415,11 +415,11 @@ class Report():
 
         return html_contents
     
-    def html_workflow_stat(self):
+    def html_workflow_stat(self, format="svg"):
         """Produce the process tree image and corresponding HTML mark"""
         html_contents = []
 
-        wf_basename = "workflow.png"
+        wf_basename = "workflow.%s" % format
 
         # Fetch networkx DAG to performe graph analysis
         g = self.plot.workflow("%s/%s" % (self.fdir, wf_basename))
@@ -432,7 +432,7 @@ class Report():
         
         table = HTMLgen.Table(tabletitle=None, # Process Tree Table
             heading=["Summary", "", "", "",
-                "Degree", "", "", ""],
+                "Degree*", "", "", ""],
             heading_align="left",
             border=0, width="100%", cell_padding=2, cell_spacing=0,
             column1_align="left", cell_align="left")
@@ -462,15 +462,15 @@ class Report():
         """Generate process and files casual order lists"""
         
         SECTION_SIZE = 3
-        headstr = "Processes and Files Casual Order"
+        headstr = "Processes and Files in Topological/Casual Order"
         docAll = HTMLgen.SimpleDocument(title=headstr)
         docAll.append(HTMLgen.Heading(SECTION_SIZE, headstr))
         
-        headstr = "Processes Casual Order"
+        headstr = "Processes in Topological/Casual Order"
         docProc = HTMLgen.SimpleDocument(title=headstr)
         docProc.append(HTMLgen.Heading(SECTION_SIZE, headstr))
         
-        headstr = "Files Casual Order"
+        headstr = "Files in Topological/Casual Order"
         docFile = HTMLgen.SimpleDocument(title="Files Casual Order")
         docFile.append(HTMLgen.Heading(SECTION_SIZE, headstr))
         
@@ -587,7 +587,7 @@ imgtype = 'png'
 
 def main():
     r = Report(sys.argv[1])
-    r.html()
-    #r.html_proc_stat()
+    #r.html()
+    r.html_workflow_stat()
 
 main()

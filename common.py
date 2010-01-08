@@ -132,6 +132,21 @@ def smart_usec(usec):
         return (usec/MIN, "min")
     return (usec/HOUR, "hour")
 
+def smart_cmdline(cmdline, verbose=0):
+    """Shorten the command line based on verbose level"""
+    if verbose >= 2:
+        return cmdline
+    elif verbose == 1:
+        return cmdline.split(" ", 1)[0]
+    elif verbose <= 0:
+        return os.path.basename(cmdline.split(" ", 1)[0])
+
+def smart_filename(filepath, verbose=0):
+    if verbose >= 1:
+        return filepath
+    elif verbose <= 0:
+        return os.path.basename(filepath)
+
 def smart_makedirs(path, confirm=True):
     try: os.makedirs(path)
     except OSError, err:

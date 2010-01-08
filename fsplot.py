@@ -29,7 +29,7 @@ import warnings
 import numpy
 import Gnuplot
 import pydot
-
+import xml.dom.minidom as minidom
 import matplotlib.pyplot as pyplot
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
@@ -75,8 +75,7 @@ class Plot:
     
     def proc_tree(self, path):
         g = ProcTreeDAG(self.datadir)
-        g.draw()
-        g.save(path)
+        g.draw(path)
 
     def proc_tree_dot(self, path):
         basename = os.path.basename(path)
@@ -102,8 +101,7 @@ class Plot:
     
     def workflow(self, path):
         g = WorkflowDAG(self.datadir)
-        g.draw()
-        g.save(path)
+        g.draw(path)
         return g
     
     def workflow_dot(self, dir, prefix=None, format="png", prog="dot"):
@@ -188,6 +186,9 @@ class ProcTreeDAG:
 
     def _load(self):
         """Generate process tree by traverse database"""
+
+        pyplot.clf()
+
         # Decide the display unit, decided by dead procs only
         _, life_avg, _ = self.db.proc_stat("elapsed", live=0)
         life_avg, life_avg_unit = smart_usec(life_avg)
@@ -203,7 +204,7 @@ class ProcTreeDAG:
             self.g.add_edge(ppid, pid)
         self.paras["labels"] = labels
 
-    def draw(self, layout="graphviz", prog="neato"):
+    def draw(self, path, layout="graphviz", prog="neato"):
         #ref: http://networkx.lanl.gov/reference/drawing.html
         assert layout in ["circular", "random", "spectral", "spring", 
             "shell", "graphviz"]
@@ -214,10 +215,8 @@ class ProcTreeDAG:
             warnings.simplefilter("ignore")
             pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
-
-    def save(self, path, format=None):
         pyplot.axis("off")
-        pyplot.savefig(path, format=format)
+        pyplot.savefig(path)
 
     def num_nodes(self):
         return self.g.number_of_nodes()
@@ -242,6 +241,8 @@ class WorkflowDAG:
         self.db.close()
 
     def _load(self):
+        pyplot.clf()
+
         SC_CREAT = SYSCALL["creat"]
         SC_OPEN = SYSCALL["open"]
         SC_CLOSE = SYSCALL["close"]
@@ -261,51 +262,167 @@ class WorkflowDAG:
             procs_write = map(lambda x:x[0],
                 self.db.sysc_sel_procs_by_file(iid, SC_WRITE, fid, "pid"))
             
-            labels["f%d" % fid] = path
+            labels["f%d" % fid] = smart_filename(path)
             # generate I/O relationships
             
+            # TODO:WAIT
+            # networkx0.99 uses add_edge(src, dst, data=1)
+            # networkx1.0rc uses add_dge(src, dst, obj=x)
             for pid in procs_write:
-                self.g.add_edge("p%d" % pid, "f%d" % fid)
+                src, dst = "p%d" % pid, "f%d" % fid
+                if self.g.has_edge(src, dst):
+                    data = self.g.get_edge(src, dst)
+                else:
+                    data = {}
+                data["write"] = True
+                self.g.add_edge(src, dst, data)
 
             for pid in procs_creat:
-                self.g.add_edge("p%d" % pid, "f%d" % fid)
+                src, dst = "p%d" % pid, "f%d" % fid
+                if self.g.has_edge(src, dst):
+                    data = self.g.get_edge(src, dst)
+                else:
+                    data = {}
+                data["creat"] = True
+                self.g.add_edge(src, dst, data)
             
             for pid in procs_read:
                 #TODO: proper set read/write edge
                 # Add read-only edges
-                if not self.g.has_edge("p%d" % pid, "f%d" % fid):
-                    self.g.add_edge("f%d" % fid, "p%d" % pid)
+                src, dst = "p%d" % pid, "f%d" % fid
+                if self.g.has_edge(src, dst):
+                    data = self.g.get_edge(src, dst)
+                else:
+                    data = {}
+                data["read"] = True
+                self.g.add_edge(src, dst, data)
 
             # generate process parent-child relaships
-            plist = self.db.proc_sel("pid,ppid")
-            plist.remove((1,1))
-            for pid,ppid in plist:
-                self.g.add_edge("p%d" % ppid, "p%d" % pid)
+            plist = self.db.proc_sel("pid,ppid,cmdline")
+            for pid,ppid,cmd in plist:
+                labels["p%d" % pid] = smart_cmdline(cmd, 0)
+                if pid == 1: continue
+                data = {}
+                data["fork"] = True
+                self.g.add_edge("p%d" % ppid, "p%d" % pid, data)
 
-        self.paras["lables"] = labels
-    
-    def draw(self, layout="graphviz", prog="dot"):
-        #ref: http://networkx.lanl.gov/reference/drawing.html
+        self.paras["labels"] = labels
+
+    def draw(self, path, prog="graphviz", layout="graphviz", 
+        layout_prog="dot", *args, **kws):
+        assert prog in ["graphviz", "pyplot"]
         assert layout in ["circular", "random", "spectral", "spring", 
             "shell", "graphviz", "pydot"]
+        assert layout_prog in ["dot", "neato", "fdp", "circo", "twopi"]
+        
+        if prog == "graphviz": self.draw_graphviz(path, *args, **kws)
+        elif prog == "pyplot": self.draw_pyplot(path, *args, **kws)
 
+    def draw_graphviz(self, path, layout_prog="dot"):
+        #TODO:WAIT
+        # Suppress warning of using os.popen3 due to old pygraphviz
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            A = nx.to_agraph(self.g)
+            A.layout("dot")
+        
+        # Setting nodes attributes
+        for n in A.nodes():
+            if n[0] == 'f':
+                n.attr["shape"] = "box"
+                n.attr["color"] = "sienna1"
+            elif n[0] == 'p':
+                n.attr["shape"] = "ellipse"
+                n.attr["color"] = "powderblue"
+            n.attr["style"] = "filled"
+            n.attr["label"] = str(self.paras["labels"][n])
+
+        for e in A.edges():
+            attr = self.g.get_edge(e[0], e[1])
+            if attr.has_key("write"):
+                e.attr["arrowhead"] = "normal"
+            if attr.has_key("read"):
+                e.attr["arrowtail"] = "inv"
+            if attr.has_key("creat") and not attr.has_key("write"):
+                e.attr["arrowhead"] = "onormal"
+            if attr.has_key("fork"):
+                e.attr["style"] = "dotted"
+                e.attr["arrowhead"] = "dot"
+                
+        # Draw dot file for further usage and user convenience
+        fprefix, fsuffix = path.rsplit('.', 1)
+        dotfile = "%s.dot" % fprefix
+        A.draw(dotfile)
+
+        #TODO:WAIT
+        # draw() of graphviz generates mis-calculated box size
+        # A.draw(path)
+        
+        # Directly call "dot" program as a workaround
+        import subprocess
+        cmd = ["%s" % layout_prog, "-T%s" % fsuffix, dotfile, "-o%s" % path]
+        res = subprocess.call(cmd, shell=False)
+
+        # Hacking svg file
+        # Depends on who wrote svg files
+        if fsuffix.lower() == "svg":
+            self.mark_workflow_svg(path)
+    
+    def draw_pyplot(self, path, layout="graphviz", layout_prog="dot"):
+        #ref: http://networkx.lanl.gov/reference/drawing.html
         layout_func = eval("nx.%s_layout" % layout)
+        #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if layout in ["graphviz", "pydot"]:
-                pos = layout_func(self.g, prog=prog)
-            else: pos = layout_func(self.g)
+                pos = layout_func(self.g, prog=layout_prog)
+            else:
+                pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
-    
-    def save(self, path, format=None, prog="graphviz"):
-        if prog == "pyplot":
-            pyplot.axis("off")
-            pyplot.savefig(path, format=format)
-        else:
-            A = nx.to_agraph(self.g)
-            A.layout("dot")
-            A.draw(path)
+        pyplot.axis("off")
+        pyplot.savefig(path)
+
+    def mark_workflow_svg(self, path, svg_generator="dot"):
+        # save original svg first
+        orig_svg = "%s.orig" % path
+        os.rename(path, orig_svg)
+        doc = minidom.parse(orig_svg)
+        
+        svg = doc.getElementsByTagName("svg")[0]
+
+        # Script
+        script = doc.createElement("script")
+        script.setAttribute("type", "text/javascript")
+        scriptcode = \
+"""
+function showSummary(x, y)
+{
+    alert(x + ',' + y);
+}
+"""
+        script.appendChild(doc.createTextNode(scriptcode))
+        svg.insertBefore(script, svg.firstChild)
+        
+        # Style
+        style = doc.createElement("style")
+        style.setAttribute("type", "text/css")
+        hovercode = \
+"""
+polygon:hover {stroke-width:10}
+ellipse:hover {stroke-width:10; stork:red}
+"""
+        style.appendChild(doc.createTextNode(hovercode))
+        svg.insertBefore(style, svg.firstChild)
+
+        # Mark every node
+        for n in doc.getElementsByTagName("ellipse") + \
+            doc.getElementsByTagName("polygon"):
+            n.setAttribute("onmouseover", "showSummary(1,1);")
+        
+        xmlFile = open(path, "w")
+        doc.writexml(xmlFile)
+        xmlFile.close()
 
     # Graph manipulation and analysis
     def nodes_count(self):
@@ -324,14 +441,3 @@ class WorkflowDAG:
     
     def casual_order(self):
         return nx.topological_sort_recursive(self.g)
-        #return nx.dfs_tree(self.g)
-
-# Drawing auxiliary utilities
-def smart_cmdline(cmdline, verbose=0):
-    """Shorten the command line based on verbose level"""
-    if verbose >= 2:
-        return cmdline
-    elif verbose == 1:
-        return cmdline.split(" ", 1)[0]
-    elif verbose <= 0:
-        return os.path.basename(cmdline.split(" ", 1)[0])
