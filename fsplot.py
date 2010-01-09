@@ -30,6 +30,8 @@ import numpy
 import Gnuplot
 import pydot
 import xml.dom.minidom as minidom
+import matplotlib
+matplotlib.use("Cairo")
 import matplotlib.pyplot as pyplot
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
@@ -274,7 +276,7 @@ class WorkflowDAG:
                     data = self.g.get_edge(src, dst)
                 else:
                     data = {}
-                data["write"] = True
+                data["write"] = self.db.proc_throughput(iid, pid, fid, "write")
                 self.g.add_edge(src, dst, data)
 
             for pid in procs_creat:
@@ -289,12 +291,12 @@ class WorkflowDAG:
             for pid in procs_read:
                 #TODO: proper set read/write edge
                 # Add read-only edges
-                src, dst = "p%d" % pid, "f%d" % fid
+                src, dst = "f%d" % fid, "p%d" % pid,
                 if self.g.has_edge(src, dst):
                     data = self.g.get_edge(src, dst)
                 else:
                     data = {}
-                data["read"] = True
+                data["read"] = self.db.proc_throughput(iid, pid, fid, "read")
                 self.g.add_edge(src, dst, data)
 
             # generate process parent-child relaships
@@ -303,7 +305,7 @@ class WorkflowDAG:
                 labels["p%d" % pid] = smart_cmdline(cmd, 0)
                 if pid == 1: continue
                 data = {}
-                data["fork"] = True
+                data["fork"] = self.db.proc_sel("btime,elapsed", pid=pid)[0]
                 self.g.add_edge("p%d" % ppid, "p%d" % pid, data)
 
         self.paras["labels"] = labels
@@ -330,19 +332,26 @@ class WorkflowDAG:
         for n in A.nodes():
             if n[0] == 'f':
                 n.attr["shape"] = "box"
+                # following shape will increase rending effort
+                # n.attr["style"] = "rounded,filled"
+                n.attr["style"] = "filled"
                 n.attr["color"] = "sienna1"
             elif n[0] == 'p':
                 n.attr["shape"] = "ellipse"
                 n.attr["color"] = "powderblue"
-            n.attr["style"] = "filled"
+                n.attr["style"] = "filled"
             n.attr["label"] = str(self.paras["labels"][n])
 
         for e in A.edges():
             attr = self.g.get_edge(e[0], e[1])
+            # graphviz add a head by default
+            # clear default head first, otherwise it will confuse
+            # read-only path
+            e.attr["arrowhead"] = "none"
             if attr.has_key("write"):
                 e.attr["arrowhead"] = "normal"
             if attr.has_key("read"):
-                e.attr["arrowtail"] = "inv"
+                e.attr["arrowhead"] = "onormal"
             if attr.has_key("creat") and not attr.has_key("write"):
                 e.attr["arrowhead"] = "onormal"
             if attr.has_key("fork"):
@@ -392,14 +401,77 @@ class WorkflowDAG:
         svg = doc.getElementsByTagName("svg")[0]
 
         # Script
+        svg.setAttribute("onload", "init()")
         script = doc.createElement("script")
         script.setAttribute("type", "text/javascript")
         scriptcode = \
 """
-function showSummary(x, y)
+<![CDATA[
+var Tip = null;
+var TipBox = null;
+
+function init()
 {
-    alert(x + ',' + y);
+    document.documentElement.addEventListener('keydown', keyHandler, false);
+    Tip = document.getElementById('tooltip');
+    TipBox = document.getElementById('tipbox');
+    TipText = document.getElementById('tiptext');
+};
+
+function keyHandler(event) {
+  event.preventDefault();
+  switch (event.keyCode) {
+    case 72:
+      alert('Help:\\n'+
+            'Point to object to get summary\\n\\n'+
+            'Search : TODO\\n');
+      break;
+  }
+};
+
+function showNodeSummary(item)
+{
+	if (item.hasAttribute('read') || item.hasAttribute('write'))
+	{	
+		show_x = Number(item.getAttribute('x')) + 10;
+		show_y = Number(item.getAttribute('y')) - 45;
+	}
+    else if (item.hasAttribute('fork'))
+    {
+		show_x = item.cx.baseVal.value + 10;
+		show_y = item.cy.baseVal.value + 10;
+    }
+	else
+	{
+    	show_x = item.x.animVal.getItem(0).value + 10;
+    	show_y = item.y.animVal.getItem(0).value - 45;
+	}
+   
+    TipBox.x.baseVal.value = show_x;
+    TipBox.y.baseVal.value = show_y;
+    
+    TipText.firstChild.nodeValue = item.getAttribute('hint');
+    
+    // adjust the size of box on contents size
+    var outline = TipText.getBBox();
+    TipBox.setAttributeNS(null, 'width', Number(outline.width) + 40);
+    TipBox.setAttributeNS(null, 'height', Number(outline.height) + 16);
+    
+    t_x = show_x + 20;
+    t_y = show_y + 16;
+    TipText.setAttribute('transform', 'translate(' + t_x + ',' + t_y + ')');
+    
+    TipBox.setAttribute('visibility', 'visible');
+    TipText.setAttribute('visibility', 'visible');
 }
+
+function hideNodeSummary(item)
+{
+    TipBox.setAttribute('visibility', 'hidden');
+    TipText.setAttribute('visibility', 'hidden');
+}
+
+]]>
 """
         script.appendChild(doc.createTextNode(scriptcode))
         svg.insertBefore(script, svg.firstChild)
@@ -415,13 +487,104 @@ ellipse:hover {stroke-width:10; stork:red}
         style.appendChild(doc.createTextNode(hovercode))
         svg.insertBefore(style, svg.firstChild)
 
-        # Mark every node
-        for n in doc.getElementsByTagName("ellipse") + \
-            doc.getElementsByTagName("polygon"):
-            n.setAttribute("onmouseover", "showSummary(1,1);")
+        # Mark nodes
+        # 1st polygon is canvas, do not add event handler
+        for n in doc.getElementsByTagName("text"):
+            n.setAttribute("onmouseover", "showNodeSummary(this);")
+            n.setAttribute("onmouseout", "hideNodeSummary(this);")
+            
+            # Text wrappring in SVG will be available in SVG 1.2
+            # rest here
+            assert n.parentNode.firstChild.tagName == "title"
+            id = n.parentNode.firstChild.firstChild.nodeValue
+            type, id = id[0], int(id[1:])
+            if type == 'f':
+                #TODO:WAIT
+                # networkx 1.0rc will allow node with data
+                # move node attribute setting to generation time
+                # and directly use attribute here
+                fid, fpath = self.db.file_sel("fid,path", fid=id)[0]
+                n.setAttribute("hint", "%s" % fpath)
+            elif type == 'p':
+                pid, cmd = self.db.proc_sel("pid,cmdline", pid=id)[0]
+                n.setAttribute("hint", "%s" % smart_cmdline(cmd, 2))
+
+        # Mark edges
+        edges = []
+        for g in doc.getElementsByTagName("g"):
+            if g.getAttribute("class") == "edge": edges.append(g)
+
+        for e in edges:
+            assert e.firstChild.tagName == "title"
+            edgeinfo = e.firstChild.firstChild.nodeValue
+            src, dst = edgeinfo.split("->")
+            edge_data = self.g.get_edge(src, dst)
+            dummy = e.firstChild.nextSibling # "\n" is also a text node?
+            pathNode = dummy.nextSibling
+            assert pathNode.tagName == "path"
+            aHead = pathNode.nextSibling.nextSibling
+            if edge_data.has_key("fork"):
+                btime, elapsed = edge_data["fork"]
+                e_v, e_u = smart_usec(elapsed)
+                hint_str = "%s#%s%s" % (btime, e_v, e_u)
+                aHead.setAttribute("fork", "1")
+            else:
+                if edge_data.has_key("read"):
+                    t, s = edge_data["read"]
+                    aHead.setAttribute("read", "1")
+                elif edge_data.has_key("write"):
+                    t, s = edge_data["write"]
+                    aHead.setAttribute("write", "1")
+                s_v, s_u = smart_datasize(s)
+                th_v, th_u = smart_datasize(s/t)
+                hint_str = "%.2f%s@%.2f%s/sec" % (s_v,s_u,th_v,th_u)
+                coords = aHead.getAttribute("points")
+                x, y = coords.split(" ")[0].split(",")
+                aHead.setAttribute("x", x) 
+                aHead.setAttribute("y", y) 
+            
+            aHead.setAttribute("hint", "%s" % hint_str) 
+            aHead.setAttribute("onmouseover", "showNodeSummary(this);")
+            aHead.setAttribute("onmouseout", "hideNodeSummary(this);")
         
+        graph = None
+        for n in doc.getElementsByTagName("g"):
+            if n.getAttribute("class") == "graph" and \
+               n.getAttribute("id") == "graph0":
+               graph = n
+               break
+
+        # Add tooltip node as the last node, 
+        # according rendering order
+        g = doc.createElement("g")
+        g.setAttribute("id", "tooltip")
+        g.setAttribute("opacity", "0.8")
+        g.setAttribute("visibility", "hidden")
+        # toolbox
+        tb = doc.createElement("rect")
+        tb.setAttribute("id", "tipbox")
+        tb.setAttribute("fill", "green")
+        tb.setAttribute("stoke", "yellow")
+        tb.setAttribute("x", "0");
+        tb.setAttribute("y", "0");
+        tb.setAttribute("width", "100")
+        tb.setAttribute("height", "50")
+        tt = doc.createElement("text")
+        tt.setAttribute("id", "tiptext")
+        tt.setAttribute("fill", "white")
+        tt.setAttribute("x", "0")
+        tt.setAttribute("y", "0")
+        tt.setAttribute("font-family", "Arial")
+        tt.setAttribute("font-size", "12")
+        tt.appendChild(doc.createTextNode("<![CDATA[]]>"))
+        g.appendChild(tb)
+        g.appendChild(tt)
+        graph.appendChild(g)
+        
+        # Escape "<, &, >" in xml
+        from xml.sax.saxutils import unescape
         xmlFile = open(path, "w")
-        doc.writexml(xmlFile)
+        xmlFile.write(unescape(doc.toxml()))
         xmlFile.close()
 
     # Graph manipulation and analysis

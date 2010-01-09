@@ -364,3 +364,14 @@ class Database:
         self.cur.execute(qstr)
         values = map(lambda x:x[0], self.cur.fetchall())
         return numpy.sum(values), numpy.mean(values), numpy.std(values)
+
+    def proc_throughput(self, iid, pid, fid, sysc):
+        if sysc == "read" or sysc == "write":
+            self.cur.execute("SELECT SUM(elapsed),SUM(aux1) FROM syscall"
+                " WHERE iid=? and pid=? and fid=? and sysc=? GROUP BY pid", 
+                (iid, pid, fid, SYSCALL[sysc]))
+        else:
+            self.cur.execute("SELECT SUM(elapsed),COUNT(sysc) FROM syscall"
+                " WHERE iid=? and pid=? and fid=? and sysc=? GROUP BY pid", 
+                (iid, pid, fid, SYSCALL[sysc]))
+        return self.cur.fetchone()
