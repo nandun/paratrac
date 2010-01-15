@@ -29,6 +29,7 @@ import optparse
 
 import common
 import fsdata
+import fsreport
 
 def print_version():
 	from version import PARATRAC_VERSION_STRING
@@ -79,18 +80,9 @@ def parse_argv(argv):
         dest="data", metavar="PATH", default=None, 
         help="path or directory of trace data")
     
-    parser.add_option("-r", "--report", action="append", type="string",
-        dest="reportlist", metavar="TYPE", default=[],
-        help="report types:\n"
-			 "  all: plot all following statistics\n"
-             "  sysc_count: system call statistics\n"
-             "  sysc_elapsed: system call latency statistics\n"
-             "  sysc_elapsed_cdf: cdf of system call latency\n"
-             "  io_summary: I/O summary\n"
-             "  io_length: I/O summary\n"
-             "  proc_io_summary: process I/O summary\n"
-             "  proc_io_volume_cdf: cdf of process I/O volume\n"
-             "  proc_life_cdf: cdf of process I/O volume\n")
+    parser.add_option("-r", "--report", action="store", type="string",
+        dest="report", metavar="PATH", default=None,
+        help="generate report\n")
     
     parser.add_option("--rs", "--report-series", action="append", 
         type="string", dest="reportseries", metavar="SERIES", default=[],
@@ -162,7 +154,7 @@ def parse_argv(argv):
     # Database options
 
     # Plot options
-    if opts.plotlist != [] or opts.reportlist != []:
+    if opts.plotlist != []:
         # check data directory
         if opts.data is None:
             sys.stderr.write("error: data path or directory required\n")
@@ -217,7 +209,7 @@ class OptionParserHelpFormatter(optparse.IndentedHelpFormatter):
 
 def main():
     opts, args = parse_argv(sys.argv[1:])
-    
+
     # Tracking
     if opts.mount or opts.umount or opts.track:
         tracker = FUSETracker(opts)
@@ -227,23 +219,24 @@ def main():
         return tracker.umount()
     if opts.track:
         return tracker.track()
-
-    # Database
-    if opts.importlog:
-        database = fsdata.Database("%s/fstrace.db" % opts.importlog, True)
-        database.import_rawdata()
+    
+    # Report
+    if opts.report:
+        # check if data have been imported
+        dbfile = "%s/fstrace.db" % opts.report
+        if not os.path.exists(dbfile):
+            sys.stdout.write("importing data from %s\n" % opts.report)
+            sys.stdout.flush()
+            database = fsdata.Database(dbfile, True)
+            database.import_rawdata()
+        r = fsreport.Report(opts.report)
+        r.html()
         return 0
 
     if opts.mergedbs:
         database = FUSETracDB("%s/merged.db" % opts.mergedbs)
         database.create_tables()
         database.merge_dbs()
-
-    # Report
-    if opts.reportlist:
-        from report import FUSETracReport
-        rpt = FUSETracReport(opts.data, opts)
-        rpt.report()
 
     # Plot
     if opts.plotlist:
