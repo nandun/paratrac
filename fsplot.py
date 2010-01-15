@@ -526,7 +526,7 @@ ellipse:hover {stroke-width:10; stork:red}
             if edge_data.has_key("fork"):
                 btime, elapsed = edge_data["fork"]
                 e_v, e_u = smart_usec(elapsed)
-                hint_str = "%s#%s%s" % (btime, e_v, e_u)
+                hint_str = "%s#%.2f%s" % (btime, e_v, e_u)
                 aHead.setAttribute("fork", "1")
             else:
                 if edge_data.has_key("read"):
@@ -603,4 +603,10 @@ ellipse:hover {stroke-width:10; stork:red}
         return avg, Cd_avg, Cb_avg, Cc_avg
     
     def casual_order(self):
-        return nx.topological_sort_recursive(self.g)
+        G = self.g.copy()
+        # remove cycle
+        for s, d in G.edges():
+            if G.has_edge(d, s):
+                if G.get_edge(s, d).has_key("read"):
+                    G.remove_edge(s, d)
+        return nx.topological_sort_recursive(G)
