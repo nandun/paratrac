@@ -37,10 +37,10 @@ FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir",
     "open", "statfs", "flush", "close", "fsync", "read", "write"]
 
 class Report():
-    def __init__(self, datadir):
-        self.datadir = os.path.abspath(datadir)
-        self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
-        self.plot = fsplot.Plot(datadir)
+    def __init__(self, dbfile):
+        self.datadir = os.path.dirname(dbfile)
+        self.db = fsdata.Database(dbfile, False)
+        self.plot = fsplot.Plot(self.datadir)
         
         # report root dir
         self.rdir = os.path.abspath("%s/report" % self.datadir)
