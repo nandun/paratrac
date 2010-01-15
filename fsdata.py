@@ -157,7 +157,8 @@ class Database:
 
         for v in procmap.values():
             try:
-                self.cur.execute("INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
+                self.cur.execute(
+                    "INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
             except:
                 print v
 
@@ -169,6 +170,8 @@ class Database:
             values.insert(0, iids)
             cur.execute("INSERT INTO file VALUES (?,?,?)", values)
         filemapFile.close()
+        
+        self.db.commit()
 
     # runtime table routines
     def runtime_sel(self, fields="*"):
