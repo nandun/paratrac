@@ -497,9 +497,7 @@ class Report():
         tableFile.body = []
         
         nAll = nProc = nFile = 0
-#        for n in wfg.casual_order():
-        #TODO:ASAP
-        for n in []:
+        for n in wfg.casual_order():
             type, id = n[0], int(n[1:])
             nAll += 1
             if type == "p":
