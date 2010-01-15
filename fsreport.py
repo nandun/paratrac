@@ -584,10 +584,3 @@ latency='msec'
 plot = 'gnuplot'
 imgtype = 'png'
 """
-
-def main():
-    r = Report(sys.argv[1])
-    #r.html()
-    r.html_workflow_stat()
-
-main()

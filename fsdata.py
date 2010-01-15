@@ -228,7 +228,9 @@ class Database:
         curr_sum = 0.0
         for v in vlist:
             curr_sum += v
-            data.append((v, curr_sum/total))
+            if total == 0: ratio = 0
+            else: ratio = curr_sum/total
+            data.append((v, ratio))
         return data
 
     def sysc_sel_procs_by_file(self, iid, sysc, fid, fields="*"):
