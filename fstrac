@@ -225,10 +225,14 @@ def main():
         # check if data have been imported
         dbfile = os.path.abspath("%s/fstrace.db" % opts.report)
         if not os.path.exists(dbfile):
-            sys.stdout.write("importing data from %s\n" % opts.report)
+            sys.stdout.write("importing data from %s ..." % opts.report)
             sys.stdout.flush()
             database = fsdata.Database(dbfile, True)
             database.import_rawdata()
+            sys.stdout.write("Done!")
+            sys.stdout.flush()
+        sys.stdout.write("Generating report ...\n")
+        sys.stdout.flush()
         r = fsreport.Report(dbfile)
         r.html()
         return 0
