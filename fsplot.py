@@ -33,9 +33,13 @@ import xml.dom.minidom as minidom
 import matplotlib
 matplotlib.use("Cairo")
 import matplotlib.pyplot as pyplot
-with warnings.catch_warnings():
-    warnings.simplefilter("ignore")
+#with warnings.catch_warnings():
+#    warnings.simplefilter("ignore")
+try:
     import networkx as nx
+except Warnings:
+    warnings.simplefilter("ignore")
+    
 
 from common import *
 import fsdata
@@ -213,10 +217,14 @@ class ProcTreeDAG:
 
         layout_func = eval("nx.%s_layout" % layout)
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        #with warnings.catch_warnings():
+        #    warnings.simplefilter("ignore")
+        try:
             pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
+        except Warnings:
+            warnings.simplefilter("ignore")
+            
         pyplot.axis("off")
         pyplot.savefig(path)
 
@@ -323,10 +331,13 @@ class WorkflowDAG:
     def draw_graphviz(self, path, layout_prog="dot"):
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        #with warnings.catch_warnings():
+        #    warnings.simplefilter("ignore")
+        try:
             A = nx.to_agraph(self.g)
             A.layout("dot")
+        except Warnings:
+            warnings.simplefilter("ignore")
         
         # Setting nodes attributes
         for n in A.nodes():
@@ -382,13 +393,17 @@ class WorkflowDAG:
         layout_func = eval("nx.%s_layout" % layout)
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+        #with warnings.catch_warnings():
+        #    warnings.simplefilter("ignore")
+        try:
             if layout in ["graphviz", "pydot"]:
                 pos = layout_func(self.g, prog=layout_prog)
             else:
                 pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
+        except Warnings:
+            warnings.simplefilter("ignore")
+            
         pyplot.axis("off")
         pyplot.savefig(path)
 
