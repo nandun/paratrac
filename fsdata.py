@@ -160,7 +160,7 @@ class Database:
                 self.cur.execute(
                     "INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
             except:
-                print v
+                print "incomplete value", v
 
         # import file map data
         filemapFile = open("%s/file.map" % datadir)
