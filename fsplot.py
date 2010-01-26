@@ -32,17 +32,13 @@ import pydot
 import xml.dom.minidom as minidom
 import matplotlib
 matplotlib.use("Cairo")
+warnings.simplefilter("ignore", DeprecationWarning)
 import matplotlib.pyplot as pyplot
-#with warnings.catch_warnings():
-#    warnings.simplefilter("ignore")
-try:
-    import networkx as nx
-except Warnings:
-    warnings.simplefilter("ignore")
-    
+import networkx as nx
 
 from common import *
 import fsdata
+
 
 class Plot:
     """Plot data chart"""
@@ -167,6 +163,42 @@ class Plot:
         
         return basename
 
+# Wrapper for covering networkx versions
+# Debian Etch uses v0.36, Ubuntu Karmic uses 0.99c
+class DiGraph(nx.DiGraph):
+    def __init__(self, **kwargs):
+        nx.DiGraph.__init__(self)
+        # Get networkx version to decide which API to use
+        if nx.release.version == "0.36":
+            self.add_edge = self._add_edge_36
+            self.edge_data = {}
+        elif nx.release.version == "0.99":
+            self.add_edge = self._add_edge_99
+            self.get_edge_data = self._get_edge_data_99
+            self.edge_data = {}
+    
+    # Wrapper all add_edge() in 1.0 way
+    def _add_edge_36(self, u, v, attr_dict=None, **attr):
+        pass
+
+    def _add_edge_99(self, u, v, **attr):
+        nx.DiGraph.add_edge(self, u, v) 
+        if not self.edge_data.has_key((u,v)):
+            self.edge_data[(u,v)] = {}
+        if len(attr) > 0:
+            self.edge_data[(u,v)].update(attr)
+
+    def _get_edge_data_36(self, u, v):
+        pass
+
+    def _get_edge_data_99(self, u, v):
+        return self.edge_data[(u,v)]
+
+    def copy(self):
+        H = self.__class__()
+        H.name = self.name
+        return H
+
 #
 # Graph classes for plotting 
 #
@@ -174,7 +206,7 @@ class ProcTreeDAG:
     def __init__(self, datadir):
         self.datadir = os.path.abspath(datadir)
         self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
-        self.g = nx.DiGraph()
+        self.g = DiGraph()
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
         self.paras = {}
@@ -217,14 +249,10 @@ class ProcTreeDAG:
 
         layout_func = eval("nx.%s_layout" % layout)
         # Suppress warning of using os.popen3 due to old pygraphviz
-        #with warnings.catch_warnings():
-        #    warnings.simplefilter("ignore")
-        try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
-        except Warnings:
-            warnings.simplefilter("ignore")
-            
         pyplot.axis("off")
         pyplot.savefig(path)
 
@@ -238,7 +266,7 @@ class WorkflowDAG:
     def __init__(self, datadir):
         self.datadir = os.path.abspath(datadir)
         self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
-        self.g = nx.DiGraph()
+        self.g = DiGraph()
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
         self.paras = {}
@@ -280,41 +308,27 @@ class WorkflowDAG:
             # networkx1.0rc uses add_dge(src, dst, obj=x)
             for pid in procs_write:
                 src, dst = "p%d" % pid, "f%d" % fid
-                if self.g.has_edge(src, dst):
-                    data = self.g.get_edge(src, dst)
-                else:
-                    data = {}
-                data["write"] = self.db.proc_throughput(iid, pid, fid, "write")
-                self.g.add_edge(src, dst, data)
+                self.g.add_edge(src, dst, 
+                    write=self.db.proc_throughput(iid, pid, fid, "write"))
 
             for pid in procs_creat:
                 src, dst = "p%d" % pid, "f%d" % fid
-                if self.g.has_edge(src, dst):
-                    data = self.g.get_edge(src, dst)
-                else:
-                    data = {}
-                data["creat"] = True
-                self.g.add_edge(src, dst, data)
+                self.g.add_edge(src, dst, creat=True)
             
             for pid in procs_read:
                 #TODO: proper set read/write edge
                 # Add read-only edges
                 src, dst = "f%d" % fid, "p%d" % pid,
-                if self.g.has_edge(src, dst):
-                    data = self.g.get_edge(src, dst)
-                else:
-                    data = {}
-                data["read"] = self.db.proc_throughput(iid, pid, fid, "read")
-                self.g.add_edge(src, dst, data)
+                self.g.add_edge(src, dst, 
+                    read=self.db.proc_throughput(iid, pid, fid, "read"))
 
             # generate process parent-child relaships
             plist = self.db.proc_sel("pid,ppid,cmdline")
             for pid,ppid,cmd in plist:
                 labels["p%d" % pid] = smart_cmdline(cmd, 0)
                 if pid == 1: continue
-                data = {}
-                data["fork"] = self.db.proc_sel("btime,elapsed", pid=pid)[0]
-                self.g.add_edge("p%d" % ppid, "p%d" % pid, data)
+                self.g.add_edge("p%d" % ppid, "p%d" % pid, 
+                    fork=self.db.proc_sel("btime,elapsed", pid=pid)[0])
 
         self.paras["labels"] = labels
 
@@ -331,13 +345,10 @@ class WorkflowDAG:
     def draw_graphviz(self, path, layout_prog="dot"):
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        #with warnings.catch_warnings():
-        #    warnings.simplefilter("ignore")
-        try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             A = nx.to_agraph(self.g)
             A.layout("dot")
-        except Warnings:
-            warnings.simplefilter("ignore")
         
         # Setting nodes attributes
         for n in A.nodes():
@@ -354,7 +365,7 @@ class WorkflowDAG:
             n.attr["label"] = str(self.paras["labels"][n])
 
         for e in A.edges():
-            attr = self.g.get_edge(e[0], e[1])
+            attr = self.g.get_edge_data(e[0], e[1])
             # graphviz add a head by default
             # clear default head first, otherwise it will confuse
             # read-only path
@@ -393,17 +404,13 @@ class WorkflowDAG:
         layout_func = eval("nx.%s_layout" % layout)
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        #with warnings.catch_warnings():
-        #    warnings.simplefilter("ignore")
-        try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
             if layout in ["graphviz", "pydot"]:
                 pos = layout_func(self.g, prog=layout_prog)
             else:
                 pos = layout_func(self.g)
             nx.draw(self.g, pos=pos, **(self.paras))
-        except Warnings:
-            warnings.simplefilter("ignore")
-            
         pyplot.axis("off")
         pyplot.savefig(path)
 
@@ -533,7 +540,7 @@ ellipse:hover {stroke-width:10; stork:red}
             assert e.firstChild.tagName == "title"
             edgeinfo = e.firstChild.firstChild.nodeValue
             src, dst = edgeinfo.split("->")
-            edge_data = self.g.get_edge(src, dst)
+            edge_data = self.g.get_edge_data(src, dst)
             dummy = e.firstChild.nextSibling # "\n" is also a text node?
             pathNode = dummy.nextSibling
             assert pathNode.tagName == "path"
@@ -617,11 +624,11 @@ ellipse:hover {stroke-width:10; stork:red}
         Cc_avg = numpy.mean(nx.closeness_centrality(self.g).values())
         return avg, Cd_avg, Cb_avg, Cc_avg
     
-    def casual_order(self):
+    def causal_order(self):
         G = self.g.copy()
         # remove cycle
         for s, d in G.edges():
             if G.has_edge(d, s):
-                if G.get_edge(s, d).has_key("read"):
+                if G.get_edge_data(s, d).has_key("read"):
                     G.remove_edge(s, d)
         return nx.topological_sort_recursive(G)
