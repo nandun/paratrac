@@ -249,10 +249,8 @@ class ProcTreeDAG:
 
         layout_func = eval("nx.%s_layout" % layout)
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            pos = layout_func(self.g)
-            nx.draw(self.g, pos=pos, **(self.paras))
+        pos = layout_func(self.g)
+        nx.draw(self.g, pos=pos, **(self.paras))
         pyplot.axis("off")
         pyplot.savefig(path)
 
@@ -345,10 +343,8 @@ class WorkflowDAG:
     def draw_graphviz(self, path, layout_prog="dot"):
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            A = nx.to_agraph(self.g)
-            A.layout("dot")
+        A = nx.to_agraph(self.g)
+        A.layout("dot")
         
         # Setting nodes attributes
         for n in A.nodes():
@@ -404,13 +400,11 @@ class WorkflowDAG:
         layout_func = eval("nx.%s_layout" % layout)
         #TODO:WAIT
         # Suppress warning of using os.popen3 due to old pygraphviz
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            if layout in ["graphviz", "pydot"]:
-                pos = layout_func(self.g, prog=layout_prog)
-            else:
-                pos = layout_func(self.g)
-            nx.draw(self.g, pos=pos, **(self.paras))
+        if layout in ["graphviz", "pydot"]:
+            pos = layout_func(self.g, prog=layout_prog)
+        else:
+            pos = layout_func(self.g)
+        nx.draw(self.g, pos=pos, **(self.paras))
         pyplot.axis("off")
         pyplot.savefig(path)
 
