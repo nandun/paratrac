@@ -428,7 +428,7 @@ class Report():
         
         d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg = g.degree_stat()
         
-        tAll, tProc, tFile = self.html_casual_order(g)
+        tAll, tProc, tFile = self.html_causal_order(g)
         
         table = HTMLgen.Table(tabletitle=None, # Process Tree Table
             heading=["Summary", "", "", "",
@@ -458,8 +458,8 @@ class Report():
 
         return html_contents
     
-    def html_casual_order(self, wfg):
-        """Generate process and files casual order lists"""
+    def html_causal_order(self, wfg):
+        """Generate process and files causal order lists"""
         
         SECTION_SIZE = 3
         headstr = "Processes and Files in Topological/Casual Order"
@@ -497,7 +497,7 @@ class Report():
         tableFile.body = []
         
         nAll = nProc = nFile = 0
-        for n in wfg.casual_order():
+        for n in wfg.causal_order():
             type, id = n[0], int(n[1:])
             nAll += 1
             if type == "p":
@@ -516,9 +516,9 @@ class Report():
         docProc.append(tableProc)
         docFile.append(tableFile)
 
-        docAllpath = "%s/casual-order-all.html" % self.tdir
-        docProcpath = "%s/casual-order-procs.html" % self.tdir
-        docFilepath = "%s/casual-order-files.html" % self.tdir
+        docAllpath = "%s/causal-order-all.html" % self.tdir
+        docProcpath = "%s/causal-order-procs.html" % self.tdir
+        docFilepath = "%s/causal-order-files.html" % self.tdir
         docAll.write(docAllpath)
         docProc.write(docProcpath)
         docFile.write(docFilepath)
@@ -569,17 +569,16 @@ def html_sub(maintxt, subtxt):
 
 PARATRAC_DEFAULT_REPORT_CONFIG_STRING = """\
 # ParaTrac default profile report configuration
-# 2009/12/30
+# 2010/01/25
 
 [report]
+section = ["sysc", "io", "proc", "workflow"]
 # report format: html
 format = 'html'
 
-[unit]
 # 'sec', 'msec', 'usec'
 latency='msec'
 
-[html]
 # plot tools, 'gnuplot'
 plot = 'gnuplot'
 imgtype = 'png'
