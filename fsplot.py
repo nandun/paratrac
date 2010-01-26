@@ -169,18 +169,15 @@ class DiGraph(nx.DiGraph):
     def __init__(self, **kwargs):
         nx.DiGraph.__init__(self)
         # Get networkx version to decide which API to use
-        if nx.release.version == "0.36":
-            self.add_edge = self._add_edge_36
-            self.edge_data = {}
-        elif nx.release.version == "0.99":
+        nx_version = float(nx.release.version)
+        if nx_version < 1:
             self.add_edge = self._add_edge_99
             self.get_edge_data = self._get_edge_data_99
             self.edge_data = {}
+        if nx_version < 0.99:
+            self.degree_iter = self._degree_iter_36
     
     # Wrapper all add_edge() in 1.0 way
-    def _add_edge_36(self, u, v, attr_dict=None, **attr):
-        pass
-
     def _add_edge_99(self, u, v, **attr):
         nx.DiGraph.add_edge(self, u, v) 
         if not self.edge_data.has_key((u,v)):
@@ -188,11 +185,11 @@ class DiGraph(nx.DiGraph):
         if len(attr) > 0:
             self.edge_data[(u,v)].update(attr)
 
-    def _get_edge_data_36(self, u, v):
-        pass
-
     def _get_edge_data_99(self, u, v):
         return self.edge_data[(u,v)]
+
+    def _degree_iter_36(self, nbunch=None, with_labels=True):
+        return nx.DiGraph.degree_iter(self, nbunch, with_labels)
 
     def copy(self):
         H = self.__class__()
@@ -551,9 +548,12 @@ ellipse:hover {stroke-width:10; stork:red}
                 elif edge_data.has_key("write"):
                     t, s = edge_data["write"]
                     aHead.setAttribute("write", "1")
-                s_v, s_u = smart_datasize(s)
-                th_v, th_u = smart_datasize(s/t)
-                hint_str = "%.2f%s@%.2f%s/sec" % (s_v,s_u,th_v,th_u)
+                if edge_data.has_key("creat"):
+                    hint_str = "creat"
+                else:
+                    s_v, s_u = smart_datasize(s)
+                    th_v, th_u = smart_datasize(s/t)
+                    hint_str = "%.2f%s@%.2f%s/sec" % (s_v,s_u,th_v,th_u)
                 coords = aHead.getAttribute("points")
                 x, y = coords.split(" ")[0].split(",")
                 aHead.setAttribute("x", x) 
