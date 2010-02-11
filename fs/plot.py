@@ -17,7 +17,7 @@
 #############################################################################
 
 #
-# fsplot.py
+# fs/plot.py
 # Plotting for File System Tracing
 #
 # Prerequisites:
@@ -36,8 +36,8 @@ warnings.simplefilter("ignore", DeprecationWarning)
 import matplotlib.pyplot as pyplot
 import networkx as nx
 
-from common import *
-import fsdata
+from common.utils import *
+import data
 
 
 class Plot:
@@ -46,7 +46,7 @@ class Plot:
         self.datadir = os.path.abspath(datadir)
         self.c = Gnuplot.Gnuplot()
         self.terminal = "png"
-        self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
+        self.db = data.Database("%s/fstrace.db" % self.datadir, False)
 
     def __del__(self):
         self.db.close()
@@ -202,7 +202,7 @@ class DiGraph(nx.DiGraph):
 class ProcTreeDAG:
     def __init__(self, datadir):
         self.datadir = os.path.abspath(datadir)
-        self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
+        self.db = data.Database("%s/fstrace.db" % self.datadir, False)
         self.g = DiGraph()
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
@@ -260,7 +260,7 @@ class ProcTreeDAG:
 class WorkflowDAG:
     def __init__(self, datadir):
         self.datadir = os.path.abspath(datadir)
-        self.db = fsdata.Database("%s/fstrace.db" % self.datadir, False)
+        self.db = data.Database("%s/fstrace.db" % self.datadir, False)
         self.g = DiGraph()
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html

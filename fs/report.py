@@ -17,7 +17,7 @@
 #############################################################################
 
 #
-# fsdata.py
+# fs/data.py
 # Filesystem Trace Report
 #
 
@@ -27,9 +27,9 @@ import time
 import HTMLgen
 import HTMLcolors
 
-from common import *
-import fsdata
-import fsplot
+from common.utils import *
+import data
+import plot
 
 FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir", 
     "readdir", "closedir", "mknod", "mkdir", "symlink", "unlink", "rmdir", 
@@ -39,8 +39,8 @@ FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir",
 class Report():
     def __init__(self, dbfile):
         self.datadir = os.path.dirname(dbfile)
-        self.db = fsdata.Database(dbfile, False)
-        self.plot = fsplot.Plot(self.datadir)
+        self.db = data.Database(dbfile, False)
+        self.plot = plot.Plot(self.datadir)
         
         # report root dir
         self.rdir = os.path.abspath("%s/report" % self.datadir)

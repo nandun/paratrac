@@ -19,7 +19,6 @@
 import sys
 import os
 import optparse
-import textwrap
 import time
 
 #
