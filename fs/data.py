@@ -27,7 +27,7 @@ import cPickle
 import scipy
 import numpy
 
-from common import *
+from common.utils import *
 
 class Database:
     def __init__(self, dbfile, initTables):
@@ -152,7 +152,10 @@ class Database:
         assert procenvironFile.readline().startswith("#")
         for line in procenvironFile.readlines():
             stamp, pid, environ = line.strip().split(",", 2)
-            procmap[pid].append(environ)
+            if len(procmap[pid]) == 8:
+                procmap[pid].append(environ)
+            elif len(procmap[pid]) == 9:
+                procmap[pid][8] = environ
         procenvironFile.close()
 
         for v in procmap.values():
@@ -160,7 +163,7 @@ class Database:
                 self.cur.execute(
                     "INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
             except:
-                print "incomplete value", v
+                print "incomplete value", v, len(v)
 
         # import file map data
         filemapFile = open("%s/file.map" % datadir)

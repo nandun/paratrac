@@ -1061,6 +1061,7 @@ static void * ctrl_process_func(void *data)
                 break;
 			
 			case CTRL_FLUSH:
+				fprintf(stderr, "in ctrl flush, %s\n", recvbuf);
 				err = ctrl_flush(sockfd);
 				break;
 			
@@ -1128,15 +1129,16 @@ static int ctrl_poll_stat(int sockfd, char *buf)
 static int ctrl_flush(int sockfd)
 {
 	int res, err = 0;
-	char *sendbuf = g_strdup_printf("%c", CTRL_OK);
+	char *sendbuf = g_strdup_printf("%d", CTRL_OK);
 
 	fflush(ftrac.log);
 	fflush(ftrac.proclog.map);
+	fflush(ftrac.proclog.environ);
 	fflush(ftrac.proclog.stat);
 	fflush(ftrac.filemap);
 
     res = send(sockfd, sendbuf, strlen(sendbuf), 0);
-    if (res < 0) {
+    if (res <= 0) {
         fprintf(stderr, "send failed, %s\n", strerror(errno));
         err = 1;
     }
