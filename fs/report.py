@@ -134,13 +134,16 @@ class Report():
         table.body.append([HTMLgen.Emphasis("Tracer Instance"), 
             HTMLgen.Text(": iid=%s (pid=%s)" 
             % (runtime["iid"], runtime["pid"]))])
-        table.body.append([HTMLgen.Emphasis("Tracing Time"), 
-            HTMLgen.Text(": %s --- %s (%.5f seconds)" 
-            % ((time.strftime("%a %b %d %Y %H:%M:%S %Z",
-               time.localtime(eval(runtime["start"])))),
-              (time.strftime("%a %b %d %Y %H:%M:%S %Z",
-               time.localtime(eval(runtime["end"])))),
-              (eval(runtime["end"]) - eval(runtime["start"]))))])
+        try:
+            table.body.append([HTMLgen.Emphasis("Tracing Time"), 
+                HTMLgen.Text(": %s --- %s (%.5f seconds)" 
+                % ((time.strftime("%a %b %d %Y %H:%M:%S %Z",
+                   time.localtime(eval(runtime["start"])))),
+                  (time.strftime("%a %b %d %Y %H:%M:%S %Z",
+                   time.localtime(eval(runtime["end"])))),
+                  (eval(runtime["end"]) - eval(runtime["start"]))))])
+        except KeyError:
+            pass
         datastr = HTMLgen.Text(":")
         datastr.append(HTMLgen.Href("../fstrace.db", " fstrace.db"))
         datastr.append("(size=%s %s)" 
