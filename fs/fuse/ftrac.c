@@ -449,7 +449,7 @@ static inline proctab_entry_t proctab_insert(pid_t pid)
 	/* TODO: entry->ptime; entry->upid */
 	entry->upid = pid;	/* to change with ptime */
 	entry->live = 1;
-	entry->environ = NULL;
+	entry->environ = get_proc_environ(pid);
 	entry->envnchk = ftrac.envnchk;
 	pthread_mutex_init(&entry->lock, NULL);
 	pthread_mutex_lock(&ftrac.proctab.lock);
@@ -579,7 +579,7 @@ static inline pid_t proc_log_map(pid_t pid)
  * retrieve only variables specified by vars[] if it is not NULL
  * return 0 for success, -1 for error, 1 for no-access permission */
 static inline void proc_log_environ(proctab_entry_t entry)
-{	
+{
 	FILE *logfp = ftrac.proclog.environ;
 	char **vars = ftrac.proclog.vars;
 	int nvars = ftrac.proclog.nvars;
@@ -587,6 +587,11 @@ static inline void proc_log_environ(proctab_entry_t entry)
 	clock_gettime(FTRAC_CLOCK, &start);
 
 	fprintf(logfp, "%.9f,%d,", get_timespec(&start), entry->upid);
+
+	if (!entry->environ) {
+		fprintf(logfp, "\n");
+		return;
+	}
 
 	if (vars == NULL) {
 		/* copy all variables when vars not specified 
@@ -607,11 +612,9 @@ static inline void proc_log_environ(proctab_entry_t entry)
 		}
 		fprintf(logfp, "\n");
 	}
-	/* environ not need anymore */
-	pthread_mutex_lock(&entry->lock);
+	
 	g_free(entry->environ);
-	entry->environ = NULL;	 
-	pthread_mutex_unlock(&entry->lock);
+	entry->environ = NULL;
 }
 
 static void proc_log_common(pid_t pid)
@@ -620,51 +623,39 @@ static void proc_log_common(pid_t pid)
 	if (pid == 0)	
 		return;
 	
-	char *environ;	
 	proctab_entry_t p = proctab_lookup(pid);
 	if (!p) {
 		/* pid has not been record before */
 		p = proctab_insert(pid);
 		pid_t ppid = proc_log_map(pid);
 		
-		/* log environ */
-		environ = get_proc_environ(pid);
-		pthread_mutex_lock(&p->lock);
-		if (!environ) {
-			/* failed to get environ because of permission or others 
-			 * store it and stop check */
-			p->environ = g_strdup("");
-			p->envnchk = -1;
-		} else {
-			p->environ = environ;
-			p->envnchk --;
-		}
-		pthread_mutex_unlock(&p->lock);
-		
 		/* recursively insert parent process to process table */
 		proc_log_common(ppid);
 	} else {
-		if (p->envnchk < 0)
-			return;
-
 		/* check if environ changed */
-		environ = get_proc_environ(pid);
-		pthread_mutex_lock(&p->lock);
-		if (g_strcmp0(p->environ, environ) == 0) {
-			p->envnchk --;
-			g_free(environ);
-		} else {
-			g_free(p->environ);
-			p->environ = environ;
-			if (ftrac.envcont)
+		if (p->envnchk >= 0) {
+			char *environ = get_proc_environ(pid);
+			int cmp = 0;
+			if (environ && p->environ &&
+				(cmp=g_strcmp0(environ, p->environ)) == 0) {
+				g_free(environ);
+				pthread_mutex_lock(&p->lock);
 				p->envnchk --;
-			else 
-				p->envnchk = -1;
+				pthread_mutex_unlock(&p->lock);
+			} else if (cmp != 0) {
+				char *tmp = p->environ;
+				pthread_mutex_lock(&p->lock);
+				p->environ = environ;
+				if (ftrac.envcont)
+					p->envnchk --;
+				else
+					p->envnchk = -1;
+				pthread_mutex_unlock(&p->lock);
+				g_free(tmp);
+			}
 		}
-		pthread_mutex_unlock(&p->lock);
-	}
+	} 
 }
-
 
 /*********** log processing routines **********/
 static void log_init(void)
