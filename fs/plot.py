@@ -355,7 +355,10 @@ class WorkflowDAG:
                 n.attr["shape"] = "ellipse"
                 n.attr["color"] = "powderblue"
                 n.attr["style"] = "filled"
-            n.attr["label"] = str(self.paras["labels"][n])
+            try:
+                n.attr["label"] = str(self.paras["labels"][n])
+            except KeyError:
+                pass
 
         for e in A.edges():
             attr = self.g.get_edge_data(e[0], e[1])
@@ -519,8 +522,11 @@ ellipse:hover {stroke-width:10; stork:red}
                 fid, fpath = self.db.file_sel("fid,path", fid=id)[0]
                 n.setAttribute("hint", "%s" % fpath)
             elif type == 'p':
-                pid, cmd = self.db.proc_sel("pid,cmdline", pid=id)[0]
-                n.setAttribute("hint", "%s" % smart_cmdline(cmd, 2))
+                try:
+                    pid, cmd = self.db.proc_sel("pid,cmdline", pid=id)[0]
+                    n.setAttribute("hint", "%s" % smart_cmdline(cmd, 2))
+                except IndexError:
+                    pass
 
         # Mark edges
         edges = []
