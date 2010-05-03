@@ -151,60 +151,6 @@
 #define DEBUG(format, args...) \
 	do {if (ftrac.debug) fprintf(stderr, format, args); } while(0)
 
-/* system call statistics */
-typedef struct stat_sc {
-	double stamp;			/* last accessed time */
-	unsigned long cnt;		/* total called count */
-	double esum;			/* sum of all elapsed */
-} * stat_sc_t;
-
-/* input/output statistics */
-typedef struct stat_io {
-	double stamp;			/* last accessed time */
-	unsigned long cnt;		/* total called count */
-	double esum;			/* sum of all elapsed */
-
-	unsigned long bytes;	/* total bytes */
-} * stat_io_t;
-
-/* filesystem global statistics */
-typedef struct stat_fs {
-	struct stat_sc lstat;
-	struct stat_sc fstat;
-	struct stat_sc access;
-	struct stat_sc readlink;
-	struct stat_sc opendir;
-	struct stat_sc readdir;
-	struct stat_sc closedir;
-	struct stat_sc mknod;
-	struct stat_sc mkdir;
-	struct stat_sc symlink;
-	struct stat_sc unlink;
-	struct stat_sc rmdir;
-	struct stat_sc rename;
-	struct stat_sc link;
-	struct stat_sc chmod;
-	struct stat_sc chown;
-	struct stat_sc truncate;
-	struct stat_sc utime;
-	struct stat_sc creat;
-	struct stat_sc open;
-	struct stat_sc statfs;
-	struct stat_sc flush;
-	struct stat_sc close;
-	struct stat_sc fsync;
-#ifdef HAVE_SETXATTR
-	struct stat_sc setxattr;
-	struct stat_sc getxattr;
-	struct stat_sc listxattr;
-	struct stat_sc removexattr;
-#endif
-	
-	struct stat_io read;
-	struct stat_io write;
-
-} * stat_fs_t;
-
 /* record table */
 typedef struct hash_table {
 	GHashTable *table;
@@ -215,9 +161,10 @@ typedef struct hash_table {
 typedef struct proctab_entry {
 	int ptime;
 	int live;
-	int upid;			/* synthetic unique pid */
+	int upid;		/* synthetic unique pid */
 	char *environ;
 	int envnchk;		/* remaning times to check environ */
+	pthread_mutex_t lock;
 } * proctab_entry_t;
 
 /* used to pass pid, especially in close() and closedir() */
@@ -261,9 +208,6 @@ struct ftrac {
 	int sockfd;
 	int serv_started;
 	pthread_t serv_thread;
-
-	/* statistics */
-	struct stat_fs fs;
 
 	/* general logging */
 	char *logdir;
@@ -310,21 +254,21 @@ enum {
 };
 
 static struct fuse_opt ftrac_opts[] = {
-	FTRAC_OPT("sessiondir=%s",      sessiondir, 0),
-	FTRAC_OPT("logdir=%s",			logdir, 0),
-	FTRAC_OPT("logbufsize=%lu",		logbufsize, 0),
-	FTRAC_OPT("notify_pid=%d",      notify_pid, 0),
-	FTRAC_OPT("nlsock=%d",      	nlsock, 0),
-	FTRAC_OPT("nlbufsize=%d",      	nlbufsize, 0),
-	FTRAC_OPT("environ=%s",			environ, 0),
-	FTRAC_OPT("envnchk=%d",			envnchk, 0),
-	FTRAC_OPT("envcont",			envcont, 1),
-	FTRAC_OPT("ftrac_debug",      	debug, 1),
+	FTRAC_OPT("sessiondir=%s",  sessiondir, 0),
+	FTRAC_OPT("logdir=%s",      logdir, 0),
+	FTRAC_OPT("logbufsize=%lu", logbufsize, 0),
+	FTRAC_OPT("notify_pid=%d",  notify_pid, 0),
+	FTRAC_OPT("nlsock=%d",      nlsock, 0),
+	FTRAC_OPT("nlbufsize=%d",   nlbufsize, 0),
+	FTRAC_OPT("environ=%s",     environ, 0),
+	FTRAC_OPT("envnchk=%d",     envnchk, 0),
+	FTRAC_OPT("envcont",        envcont, 1),
+	FTRAC_OPT("ftrac_debug",    debug, 1),
 
-	FUSE_OPT_KEY("-V",			KEY_VERSION),
-	FUSE_OPT_KEY("--version",	KEY_VERSION),
-	FUSE_OPT_KEY("-h",			KEY_HELP),
-	FUSE_OPT_KEY("--help", 		KEY_HELP),
+	FUSE_OPT_KEY("-V",          KEY_VERSION),
+	FUSE_OPT_KEY("--version",   KEY_VERSION),
+	FUSE_OPT_KEY("-h",          KEY_HELP),
+	FUSE_OPT_KEY("--help",      KEY_HELP),
 	FUSE_OPT_KEY("debug",       KEY_FOREGROUND),
 	FUSE_OPT_KEY("-d",          KEY_FOREGROUND),
 	FUSE_OPT_KEY("-f",          KEY_FOREGROUND),
@@ -332,8 +276,7 @@ static struct fuse_opt ftrac_opts[] = {
 };
 
 /* Functions declarions, only put depencies here */
-static int proc_log_environ(pid_t pid);
-static inline void proc_log_environ_tofile(proctab_entry_t entry);
+static inline void proc_log_environ(proctab_entry_t entry);
 
 /*
  * Function implementations
@@ -468,9 +411,9 @@ static char * get_proc_environ(pid_t pid)
 static void proctab_entry_free(gpointer data)
 {
 	proctab_entry_t entry = (proctab_entry_t) data;
-	if (entry->envnchk >= 0)	/* store all environ */
-		proc_log_environ_tofile(entry);
-	g_free(entry->environ);		/* guarantee */
+	if (entry->live)	/* store environ of live process */
+		proc_log_environ(entry);
+	pthread_mutex_destroy(&entry->lock);
 	g_free(entry);
 }
 
@@ -498,7 +441,7 @@ static inline proctab_entry_t proctab_lookup(pid_t pid)
 	return (proctab_entry_t) g_hash_table_lookup(ftrac.proctab.table, &pid);
 }
 
-static inline void proctab_insert(pid_t pid)
+static inline proctab_entry_t proctab_insert(pid_t pid)
 {
 	proctab_entry_t entry = g_new0(struct proctab_entry, 1);
 	pid_t *pidp = g_new(pid_t, 1);
@@ -508,10 +451,12 @@ static inline void proctab_insert(pid_t pid)
 	entry->live = 1;
 	entry->environ = NULL;
 	entry->envnchk = ftrac.envnchk;
+	pthread_mutex_init(&entry->lock, NULL);
 	pthread_mutex_lock(&ftrac.proctab.lock);
 	g_hash_table_insert(ftrac.proctab.table, pidp, entry);
 	pthread_mutex_unlock(&ftrac.proctab.lock);
 	DEBUG("process %d inserted to proctab\n", pid);
+	return entry;
 }
 
 /*********** file table processing routines **********/
@@ -563,9 +508,8 @@ static inline double get_elapsed(const struct timespec *start,
 		(((double) (end->tv_nsec - start->tv_nsec)) * 0.000000001));
 }
 
-static inline void sysc_log_common(stat_sc_t stat, int sysc, 
-	struct timespec *start, struct timespec *end, int pid, int res,
-	const char *path)
+static inline void sysc_log_common(int sysc, struct timespec *start, 
+	struct timespec *end, int pid, int res, const char *path)
 {
 	double stamp = get_timespec(start);
 	double elapsed = get_elapsed(start, end);
@@ -576,16 +520,10 @@ static inline void sysc_log_common(stat_sc_t stat, int sysc,
 	/* TODO: hash pid and ppid ptime */
 	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n",
 		stamp, pid, sysc, fid, res, elapsed);
-
-	/* internal statistics */
-	stat->stamp = stamp;
-	stat->cnt ++;
-	stat->esum += elapsed;
 }
 
-static inline void sysc_log_openclose(stat_sc_t scstat, int sysc,
-	struct timespec *start, struct timespec *end, int pid, int res,
-	const char *path)
+static inline void sysc_log_openclose(int sysc, struct timespec *start, 
+	struct timespec *end, int pid, int res, const char *path)
 {
 	double stamp = get_timespec(start);
 	double elapsed = get_elapsed(start, end);
@@ -598,15 +536,10 @@ static inline void sysc_log_openclose(stat_sc_t scstat, int sysc,
 	/* TODO: use hash pid and ppid */
 	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu,0\n", 
 		stamp, pid, sysc, fid, res, elapsed, fsize);
-
-	/* internal statistics */
-	scstat->stamp = stamp;
-	scstat->cnt ++;
-	scstat->esum += elapsed;
 }
 
-static inline void sysc_log_io(stat_io_t stat, int sysc, 
-	struct timespec *start, struct timespec *end, int pid, int res,
+static inline void sysc_log_io(int sysc, struct timespec *start, 
+	struct timespec *end, int pid, int res,
 	const char *path, size_t size, off_t offset)
 {
 	double stamp = get_timespec(start);
@@ -616,14 +549,9 @@ static inline void sysc_log_io(stat_io_t stat, int sysc,
 	/* TODO: use hash pid and ppid */
 	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu,%lu\n", 
 		stamp, pid, sysc, fid, res, elapsed, size, offset);
-
-	stat->stamp = stamp;
-	stat->cnt ++;
-	stat->esum += elapsed;
-	stat->bytes += size;
 }
 
-static inline void sysc_log_link(stat_sc_t stat, int sysc, 
+static inline void sysc_log_link(int sysc, 
 	struct timespec *start, struct timespec *end, int pid, int res,
 	const char *from, const char *to)
 {
@@ -634,82 +562,6 @@ static inline void sysc_log_link(stat_sc_t stat, int sysc,
 	
 	fprintf(ftrac.log, "%.9f,%d,%d,%lu,%d,%.9f,%lu,0\n", 
 		stamp, pid, sysc, fid_from, res, elapsed, fid_to);
-
-	stat->stamp = stamp;
-	stat->cnt ++;
-	stat->esum += elapsed;
-}
-
-static char * stat_fs_to_dictstr(stat_fs_t fs)
-{
-	char *buf = g_strdup_printf("{"
-		"'lstat':(%.9f,%lu,%.9f),"
-		"'fstat':(%.9f,%lu,%.9f),"
-	 	"'access':(%.9f,%lu,%.9f),"
-		"'readlink':(%.9f,%lu,%.9f),"
-		"'opendir':(%.9f,%lu,%.9f),"
-		"'readdir':(%.9f,%lu,%.9f),"
-		"'closedir':(%.9f,%lu,%.9f),"
-		"'mknod':(%.9f,%lu,%.9f),"
-		"'mkdir':(%.9f,%lu,%.9f),"
-		"'symlink':(%.9f,%lu,%.9f),"
-		"'unlink':(%.9f,%lu,%.9f),"
-		"'rmdir':(%.9f,%lu,%.9f),"
-		"'rename':(%.9f,%lu,%.9f),"
-		"'link':(%.9f,%lu,%.9f),"
-		"'chmod':(%.9f,%lu,%.9f),"
-		"'chown':(%.9f,%lu,%.9f),"
-		"'truncate':(%.9f,%lu,%.9f),"
-		"'utime':(%.9f,%lu,%.9f),"
-		"'creat':(%.9f,%lu,%.9f),"
-		"'open':(%.9f,%lu,%.9f),"
-		"'statfs':(%.9f,%lu,%.9f),"
-		"'flush':(%.9f,%lu,%.9f),"
-		"'close':(%.9f,%lu,%.9f),"
-		"'fsync':(%.9f,%lu,%.9f)"
-#ifdef HAVE_SETXATTR
-		",'setxattr':(%.9f,%lu,%.9f),"
-		"'getxattr':(%.9f,%lu,%.9f),"
-		"'listxattr':(%.9f,%lu,%.9f),"
-		"'removexattr':(%.9f,%lu,%.9f)"
-#endif
-		",'read':(%.9f,%lu,%.9f,%lu),"
-		"'write':(%.9f,%lu,%.9f,%lu)"
-		"}",
-		fs->lstat.stamp, fs->lstat.cnt, fs->lstat.esum,
-		fs->fstat.stamp, fs->fstat.cnt, fs->fstat.esum,
-		fs->access.stamp, fs->access.cnt, fs->access.esum,
-		fs->readlink.stamp, fs->readlink.cnt, fs->readlink.esum,
-		fs->opendir.stamp, fs->opendir.cnt, fs->opendir.esum,
-		fs->readdir.stamp, fs->readdir.cnt, fs->readdir.esum,
-		fs->closedir.stamp, fs->closedir.cnt, fs->closedir.esum,
-		fs->mknod.stamp, fs->mknod.cnt, fs->mknod.esum,
-		fs->mkdir.stamp, fs->mkdir.cnt, fs->mkdir.esum,
-		fs->symlink.stamp, fs->symlink.cnt, fs->symlink.esum,
-		fs->unlink.stamp, fs->unlink.cnt, fs->unlink.esum,
-		fs->rmdir.stamp, fs->rmdir.cnt, fs->rmdir.esum,
-		fs->rename.stamp, fs->rename.cnt, fs->rename.esum,
-		fs->link.stamp, fs->link.cnt, fs->link.esum,
-		fs->chmod.stamp, fs->chmod.cnt, fs->chmod.esum,
-		fs->chown.stamp, fs->chown.cnt, fs->chown.esum,
-		fs->truncate.stamp, fs->truncate.cnt, fs->truncate.esum,
-		fs->utime.stamp, fs->utime.cnt, fs->utime.esum,
-		fs->creat.stamp, fs->creat.cnt, fs->creat.esum,
-		fs->open.stamp, fs->open.cnt, fs->open.esum,
-		fs->statfs.stamp, fs->statfs.cnt, fs->statfs.esum,
-		fs->flush.stamp, fs->flush.cnt, fs->flush.esum,
-		fs->close.stamp, fs->close.cnt, fs->close.esum,
-		fs->fsync.stamp, fs->fsync.cnt, fs->fsync.esum
-#ifdef HAVE_SETXATTR
-		,fs->setxattr.stamp, fs->setxattr.cnt, fs->setxattr.esum,
-		fs->getxattr.stamp, fs->getxattr.cnt, fs->setxattr.esum,
-		fs->listxattr.stamp, fs->listxattr.cnt, fs->listxattr.esum,
-		fs->removexattr.stamp, fs->removexattr.cnt, fs->removesetxattr.esum
-#endif
-		,fs->read.stamp, fs->read.cnt, fs->read.esum, fs->read.bytes,
-		fs->write.stamp, fs->write.cnt, fs->write.esum, fs->write.bytes
-		);
-	return buf;
 }
 
 /*********** process logging routines **********/
@@ -723,11 +575,11 @@ static inline pid_t proc_log_map(pid_t pid)
 	return ppid;
 }
 
-/* copy the environment viriables of process to a give file
+/* copy the environment variables of process to a give file
  * retrieve only variables specified by vars[] if it is not NULL
  * return 0 for success, -1 for error, 1 for no-access permission */
-static inline void proc_log_environ_tofile(proctab_entry_t entry)
-{
+static inline void proc_log_environ(proctab_entry_t entry)
+{	
 	FILE *logfp = ftrac.proclog.environ;
 	char **vars = ftrac.proclog.vars;
 	int nvars = ftrac.proclog.nvars;
@@ -755,70 +607,62 @@ static inline void proc_log_environ_tofile(proctab_entry_t entry)
 		}
 		fprintf(logfp, "\n");
 	}
-	entry->envnchk = -1;
 	/* environ not need anymore */
+	pthread_mutex_lock(&entry->lock);
 	g_free(entry->environ);
-	/* NULL indicates that environ has been persistented */
 	entry->environ = NULL;	 
-}
-
-static int proc_log_environ(pid_t pid)
-{
-	proctab_entry_t entry = (proctab_entry_t) proctab_lookup(pid);
-	
-	if (!entry || entry->envnchk < 0)	/* process has been logged */
-		return 0;
-
-	if (entry->envnchk == 0) { 
-		/* reach limit, persist environ */
-		proc_log_environ_tofile(entry);
-		return 0;
-	}
-	
-	/* check /proc/#pid/environ and store it */
-	char *environ = get_proc_environ(pid);
-	if (!environ) {
-		/* failed to get environ because of permission or others 
-		 * store it and stop check */
-		entry->environ = g_strdup("");
-		proc_log_environ_tofile(entry);
-	} else if (entry->environ == NULL) {
-		/* first store */
-		entry->environ = environ;
-		entry->envnchk --;
-	} else {
-		/* check if changed since last logging */
-		if (g_strcmp0(entry->environ, environ) == 0) {
-			entry->envnchk --;
-			g_free(environ);
-		} else { /* environ changed */
-			g_free(entry->environ);
-			entry->environ = environ;
-			if (ftrac.envcont) {
-				entry->envnchk --;
-			} else {
-				proc_log_environ_tofile(entry);
-			}
-		}
-	}
-	return 0;
+	pthread_mutex_unlock(&entry->lock);
 }
 
 static void proc_log_common(pid_t pid)
 {
-	if (pid == 0)	/* use process 0 as the root */
+	/* process 0 as the root */
+	if (pid == 0)	
 		return;
-
+	
+	char *environ;	
 	proctab_entry_t p = proctab_lookup(pid);
-	if (!p) {	/* has not been record before */
-		proctab_insert(pid);
+	if (!p) {
+		/* pid has not been record before */
+		p = proctab_insert(pid);
 		pid_t ppid = proc_log_map(pid);
 		
-		/* recursively insert parent process to process table
-		   this is useful to build workflow tree */
+		/* log environ */
+		environ = get_proc_environ(pid);
+		pthread_mutex_lock(&p->lock);
+		if (!environ) {
+			/* failed to get environ because of permission or others 
+			 * store it and stop check */
+			p->environ = g_strdup("");
+			p->envnchk = -1;
+		} else {
+			p->environ = environ;
+			p->envnchk --;
+		}
+		pthread_mutex_unlock(&p->lock);
+		
+		/* recursively insert parent process to process table */
 		proc_log_common(ppid);
+	} else {
+		if (p->envnchk < 0)
+			return;
+
+		/* check if environ changed */
+		environ = get_proc_environ(pid);
+		pthread_mutex_lock(&p->lock);
+		if (g_strcmp0(p->environ, environ) == 0) {
+			p->envnchk --;
+			g_free(environ);
+		} else {
+			g_free(p->environ);
+			p->environ = environ;
+			if (ftrac.envcont)
+				p->envnchk --;
+			else 
+				p->envnchk = -1;
+		}
+		pthread_mutex_unlock(&p->lock);
 	}
-	proc_log_environ(pid);
 }
 
 
@@ -990,7 +834,6 @@ typedef struct ctrl_process_data {
 } * ctrl_process_data_t;
 
 static void * ctrl_process(void *data);
-static int ctrl_poll_stat(int sockfd, char *buf);
 static int ctrl_flush(int sockfd);
 
 static void ctrl_server_init(void)
@@ -1055,24 +898,18 @@ static void * ctrl_process_func(void *data)
 			err = 1;
 			goto out;
 		}
-        switch(atoi(recvbuf)) {
-            case CTRL_POLL_STAT:
-                err = ctrl_poll_stat(sockfd, recvbuf);
-                break;
-			
+		switch(atoi(recvbuf)) {
 			case CTRL_FLUSH:
 				fprintf(stderr, "in ctrl flush, %s\n", recvbuf);
 				err = ctrl_flush(sockfd);
 				break;
-			
-            case CTRL_FINISH:
+			case CTRL_FINISH:
 				err = 0;
-                goto out;
-
-            default:
+				goto out;
+			default:
 				err = 1;
 				goto out;
-        }
+		}
 	} while (res >= 0);
 
   out:
@@ -1110,22 +947,6 @@ static void * ctrl_process(void *data)
 }
 
 /* control operations */
-static int ctrl_poll_stat(int sockfd, char *buf)
-{
-	int res, err = 0;
-	char *sendbuf;
-	(void) buf;
-
-	sendbuf = stat_fs_to_dictstr(&ftrac.fs);
-	res = send(sockfd, sendbuf, strlen(sendbuf), 0);
-	if (res < 0) {
-        fprintf(stderr, "send failed, %s\n", strerror(errno));
-        err = 1;
-    }
-    g_free(sendbuf);
-    return err;
-}
-
 static int ctrl_flush(int sockfd)
 {
 	int res, err = 0;
@@ -1288,8 +1109,7 @@ static void proc_log_task(pid_t tid, struct taskstats *st, int liveness)
 		/* since process has exited, mark it as dead,
 		 * DO NOT remove dead process from table, it is not safe */
 		entry->live = 0;
-		if (entry->environ)
-			proc_log_environ_tofile(entry);
+		proc_log_environ(entry);
 	}
 }
 
@@ -1515,8 +1335,7 @@ static int ftrac_getattr(const char *path, struct stat *stbuf)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.lstat, SYSC_FS_LSTAT, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_LSTAT, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 	
@@ -1546,8 +1365,7 @@ static int ftrac_fgetattr(const char *path, struct stat *stbuf,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.fstat, SYSC_FS_FSTAT, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_FSTAT, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1572,8 +1390,7 @@ static int ftrac_access(const char *path, int mask)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 
-	sysc_log_common(&ftrac.fs.access, SYSC_FS_ACCESS, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_ACCESS, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1598,8 +1415,7 @@ static int ftrac_readlink(const char *path, char *buf, size_t size)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 
-	sysc_log_common(&ftrac.fs.readlink, SYSC_FS_READLINK, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_READLINK, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1626,8 +1442,7 @@ static int ftrac_opendir(const char *path, struct fuse_file_info *fi)
 	clock_gettime(FTRAC_CLOCK, &end);
 	
 	res = dp == NULL ? -1 : 0;
-	sysc_log_common(&ftrac.fs.opendir, SYSC_FS_OPENDIR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_OPENDIR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1677,8 +1492,7 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 #ifdef FTRAC_TRACE_ENABLED
 		clock_gettime(FTRAC_CLOCK, &end);
 		
-		sysc_log_common(&ftrac.fs.readdir, SYSC_FS_READDIR, 
-			&start, &end, pid, res, path);
+		sysc_log_common(SYSC_FS_READDIR, &start, &end, pid, res, path);
 		proc_log_common(pid);
 #endif
 		if (dep) {
@@ -1716,8 +1530,7 @@ static int ftrac_closedir(const char *path, struct fuse_file_info *fi)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.closedir, SYSC_FS_CLOSEDIR, 
-		&start, &end, pid, 0, path);
+	sysc_log_common(SYSC_FS_CLOSEDIR, &start, &end, pid, 0, path);
 	proc_log_common(pid);
 #endif
 
@@ -1753,8 +1566,7 @@ static int ftrac_mknod(const char *path, mode_t mode, dev_t rdev)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.mknod, SYSC_FS_MKNOD, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_MKNOD, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1779,8 +1591,7 @@ static int ftrac_mkdir(const char *path, mode_t mode)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.mkdir, SYSC_FS_MKDIR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_MKDIR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 	
@@ -1805,8 +1616,7 @@ static int ftrac_unlink(const char *path)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.unlink, SYSC_FS_UNLINK, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_UNLINK, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1831,8 +1641,7 @@ static int ftrac_rmdir(const char *path)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.rmdir, SYSC_FS_RMDIR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_RMDIR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1857,8 +1666,7 @@ static int ftrac_symlink(const char *from, const char *to)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_link(&ftrac.fs.symlink, SYSC_FS_SYMLINK, 
-		&start, &end, pid, res, from, to);
+	sysc_log_link(SYSC_FS_SYMLINK, &start, &end, pid, res, from, to);
 	proc_log_common(pid);
 #endif
 
@@ -1883,8 +1691,7 @@ static int ftrac_rename(const char *from, const char *to)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_link(&ftrac.fs.rename, SYSC_FS_RENAME, 
-		&start, &end, pid, res, from, to);
+	sysc_log_link(SYSC_FS_RENAME, &start, &end, pid, res, from, to);
 	proc_log_common(pid);
 #endif
 
@@ -1909,8 +1716,7 @@ static int ftrac_link(const char *from, const char *to)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_link(&ftrac.fs.link, SYSC_FS_LINK, 
-		&start, &end, pid, res, from, to);
+	sysc_log_link(SYSC_FS_LINK, &start, &end, pid, res, from, to);
 	proc_log_common(pid);
 #endif
 
@@ -1935,8 +1741,7 @@ static int ftrac_chmod(const char *path, mode_t mode)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.chmod, SYSC_FS_CHMOD,
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_CHMOD, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1961,8 +1766,7 @@ static int ftrac_chown(const char *path, uid_t uid, gid_t gid)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.chown, SYSC_FS_CHOWN, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_CHOWN, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -1987,8 +1791,7 @@ static int ftrac_truncate(const char *path, off_t size)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.truncate, SYSC_FS_TRUNCATE, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_TRUNCATE, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2019,8 +1822,7 @@ static int ftrac_ftruncate(const char *path, off_t size,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.truncate, SYSC_FS_TRUNCATE, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_TRUNCATE, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2051,8 +1853,7 @@ static int ftrac_utimens(const char *path, const struct timespec ts[2])
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.utime, SYSC_FS_UTIME, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_UTIME, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2076,8 +1877,7 @@ static int ftrac_utime(const char *path, struct utimbuf *buf)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.utime, SYSC_FS_UTIME, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_UTIME, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 	
@@ -2106,8 +1906,7 @@ static int ftrac_create(const char *path, mode_t mode, struct fuse_file_info
 	clock_gettime(FTRAC_CLOCK, &end);
 	
 	res = fd == -1 ? -1 : 0;
-	sysc_log_common(&ftrac.fs.creat, SYSC_FS_CREAT, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_CREAT, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2144,8 +1943,7 @@ static int ftrac_open(const char *path, struct fuse_file_info *fi)
 	clock_gettime(FTRAC_CLOCK, &end);
 	
 	res = fd == -1 ? -1 : 0;
-	sysc_log_openclose(&ftrac.fs.open, SYSC_FS_OPEN, 
-		&start, &end, pid, res, path);
+	sysc_log_openclose(SYSC_FS_OPEN, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2188,8 +1986,7 @@ static int ftrac_read(const char *path, char *buf, size_t size, off_t offset,
 	
 	/* should not log size in arguments, but actual read bytes */
 	size_t bytes = res == -1 ? 0 : res;
-	sysc_log_io(&ftrac.fs.read, SYSC_FS_READ, 
-		&start, &end, pid, res, path, bytes, offset);
+	sysc_log_io(SYSC_FS_READ, &start, &end, pid, res, path, bytes, offset);
 	proc_log_common(pid);
 		
 #endif
@@ -2223,8 +2020,7 @@ static int ftrac_write(const char *path, const char *buf, size_t size,
 	
 	/* should not log size in arguments, but actual write bytes */
 	size_t bytes = res == -1 ? 0 : res;
-	sysc_log_io(&ftrac.fs.write, SYSC_FS_WRITE, 
-		&start, &end, pid, res, path, bytes, offset);
+	sysc_log_io(SYSC_FS_WRITE, &start, &end, pid, res, path, bytes, offset);
 	proc_log_common(pid);
 #endif
 
@@ -2249,8 +2045,7 @@ static int ftrac_statfs(const char *path, struct statvfs *stbuf)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.statfs, SYSC_FS_STATFS, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_STATFS, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 	
@@ -2285,8 +2080,7 @@ static int ftrac_flush(const char *path, struct fuse_file_info *fi)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.flush, SYSC_FS_FLUSH, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_FLUSH, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2317,8 +2111,7 @@ static int ftrac_close(const char *path, struct fuse_file_info *fi)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_openclose(&ftrac.fs.close, SYSC_FS_CLOSE, 
-		&start, &end, pid, 0, path);
+	sysc_log_openclose(SYSC_FS_CLOSE, &start, &end, pid, 0, path);
 	proc_log_common(pid);
 #endif
 
@@ -2355,8 +2148,7 @@ static int ftrac_fsync(const char *path, int isdatasync,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.fsync, SYSC_FS_FSYNC, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_FSYNC, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
     
@@ -2385,8 +2177,7 @@ static int ftrac_setxattr(const char *path, const char *name,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.setxattr, SYSC_FS_SETXATTR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_SETXATTR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2412,8 +2203,7 @@ static int ftrac_getxattr(const char *path, const char *name, char *value,
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.getxattr, SYSC_FS_GETXATTR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_GETXATTR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2438,8 +2228,7 @@ static int ftrac_listxattr(const char *path, char *list, size_t size)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.listxattr, SYSC_FS_LISTXATTR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_LISTXATTR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2464,8 +2253,7 @@ static int ftrac_removexattr(const char *path, const char *name)
 #ifdef FTRAC_TRACE_ENABLED
 	clock_gettime(FTRAC_CLOCK, &end);
 	
-	sysc_log_common(&ftrac.fs.removexattr, SYSC_FS_REMOVEXATTR, 
-		&start, &end, pid, res, path);
+	sysc_log_common(SYSC_FS_REMOVEXATTR, &start, &end, pid, res, path);
 	proc_log_common(pid);
 #endif
 
@@ -2482,8 +2270,6 @@ static void * ftrac_init(void)
 #endif
 {
 	(void) conn;
-
-	memset(&ftrac.fs, 0, sizeof(struct stat_fs));
 
 	/* set the seed using the current time and the process ID */
 	srand(time(NULL) + getpid());
@@ -2525,7 +2311,7 @@ static void ftrac_destroy(void *data_)
 	remove(ftrac.sessiondir);
 	g_free(ftrac.cmdline);
 	g_free(ftrac.cwd);
-    g_free(ftrac.username);
+	g_free(ftrac.username);
 	g_free(ftrac.environ);
 	g_free(ftrac.sessiondir);
 	g_free(ftrac.mountpoint);
