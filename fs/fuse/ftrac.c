@@ -150,6 +150,7 @@
 /* Tracing code control */
 #define FTRAC_TRACE_ENABLED
 #define FTRAC_TRACE_USING_PTRACE
+#define FTRAC_TRACE_USING_TASKSTAT
 #define FTRAC_TRACE_LOG_BUFSIZE	1048576
 
 #define N_CHECK_INFINITE -256
@@ -175,7 +176,7 @@
 #define ERROR(format, args...) \
 	do {fprintf(ftrac.fp_err, format, args);} while(0)
 #define DEBUG(format, args...) \
-	do {if (ftrac.debug) fprintf(ftrac.fp_err, format, args);} while(0)
+	do {if (ftrac.debug) fprintf(ftrac.fp_dbg, format, args);} while(0)
 
 /* See /proc/[pid]/stat in man proc(5) */
 typedef struct proc_stat {
@@ -241,6 +242,7 @@ typedef struct proc_stat {
 typedef struct hash_table {
 	GHashTable *table;
 	pthread_mutex_t lock;
+	pthread_t thread;
 } * hash_table_t;
 
 /* process table entry */
@@ -326,6 +328,7 @@ struct ftrac {
 
     /* misc usage */
     pid_t notify_pid;
+	int table_timeout;
 	int debug;
 	int debug_log;
 };
@@ -348,30 +351,33 @@ enum {
 
 static struct fuse_opt ftrac_opts[] = {
 	/* General options */
-	FTRAC_OPT("sessiondir=%s",  sessiondir, 0),
-	FTRAC_OPT("logdir=%s",      logdir, 0),
-	FTRAC_OPT("logbufsize=%lu", logbufsize, 0),
-	FTRAC_OPT("notify_pid=%d",  notify_pid, 0),
-	FTRAC_OPT("ftrac_debug",    debug, 1),
-	FTRAC_OPT("debug_log",      debug_log, 1),
+	FTRAC_OPT("sessiondir=%s",      sessiondir, 0),
+	FTRAC_OPT("logdir=%s",          logdir, 0),
+	FTRAC_OPT("logbufsize=%lu",     logbufsize, 0),
+	FTRAC_OPT("notify_pid=%d",      notify_pid, 0),
+	FTRAC_OPT("ftrac_debug",        debug, 1),
+	FTRAC_OPT("debug_log",          debug_log, 1),
+
+	/* FUSE logging options */ 
+	FTRAC_OPT("table_timeout=%s",   table_timeout, 0),
 	
 	/* Process logging options */ 
-	FTRAC_OPT("environ=%s",     environ, 0),
-	FTRAC_OPT("stop_envchk",    stop_envchk, 0),
-	FTRAC_OPT("stop_cmdchk",    stop_cmdchk, 0),
+	FTRAC_OPT("environ=%s",         environ, 0),
+	FTRAC_OPT("stop_envchk",        stop_envchk, 0),
+	FTRAC_OPT("stop_cmdchk",        stop_cmdchk, 0),
 
 	/* Taskstat logging options */
-	FTRAC_OPT("nlsock=%d",      nlsock, 0),
-	FTRAC_OPT("nlbufsize=%d",   nlbufsize, 0),
+	FTRAC_OPT("nlsock=%d",          nlsock, 0),
+	FTRAC_OPT("nlbufsize=%d",       nlbufsize, 0),
 	
 	/* Misc options */
-	FUSE_OPT_KEY("-V",          KEY_VERSION),
-	FUSE_OPT_KEY("--version",   KEY_VERSION),
-	FUSE_OPT_KEY("-h",          KEY_HELP),
-	FUSE_OPT_KEY("--help",      KEY_HELP),
-	FUSE_OPT_KEY("debug",       KEY_FOREGROUND),
-	FUSE_OPT_KEY("-d",          KEY_FOREGROUND),
-	FUSE_OPT_KEY("-f",          KEY_FOREGROUND),
+	FUSE_OPT_KEY("-V",              KEY_VERSION),
+	FUSE_OPT_KEY("--version",       KEY_VERSION),
+	FUSE_OPT_KEY("-h",              KEY_HELP),
+	FUSE_OPT_KEY("--help",          KEY_HELP),
+	FUSE_OPT_KEY("debug",           KEY_FOREGROUND),
+	FUSE_OPT_KEY("-d",              KEY_FOREGROUND),
+	FUSE_OPT_KEY("-f",              KEY_FOREGROUND),
 	FUSE_OPT_END
 };
 
@@ -536,16 +542,16 @@ static void procfs_get_stat(pid_t pid, proc_stat_t stat)
 
 	/* reference: linux-source/fs/proc/array.c */
 	int res = fscanf(fp, 
-		"%d %s %c %d %d \
-		%d %d %d %lu \
-		%lu %lu %lu %lu \
-		%lu %lu %lu %lu \
-		%ld %ld %ld %ld \
-		%lu %lu %ld %lu \
-		%lu %lu %lu %lu \
-		%lu %lu %lu %lu \
-		%lu %lu %lu %lu \
-		%lu"
+		"%d %s %c %d %d "
+		"%d %d %d %lu "
+		"%lu %lu %lu %lu "
+		"%lu %lu %lu %lu "
+		"%ld %ld %ld %ld "
+		"%lu %lu %ld %lu "
+		"%lu %lu %lu %lu "
+		"%lu %lu %lu %lu "
+		"%lu %lu %lu %lu "
+		"%lu"
 #ifdef linux
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,1,22)
 		" %d"
@@ -600,13 +606,14 @@ static void procfs_get_stat(pid_t pid, proc_stat_t stat)
 	fclose(fp);
 }
 
-/*********** process table processing routines **********/
+/* 
+ * Process table routines
+ */
 static void proctab_entry_free(gpointer data)
 {
 	proctab_entry_t proc = (proctab_entry_t) data;
-	assert(proc != NULL);
 	if (proc->live && proc->traced) {
-		DEBUG("Cancel trace thread for process %d\n", proc->pid);
+		DEBUG("proctab: cancel trace thread for process %d\n", proc->pid);
 		pthread_cancel(proc->trace_thread);
 	}
 	proc_logging_write(proc, 1);
@@ -614,6 +621,55 @@ static void proctab_entry_free(gpointer data)
 	g_free(proc->environ);
 	pthread_mutex_destroy(&proc->lock);
 	g_free(proc);
+}
+
+static int proctab_entry_check(void *key, void *value, void *data)
+{
+	(void) key;
+	(void) data;
+
+	proctab_entry_t proc = (proctab_entry_t) value;
+	if (proc->live) {
+		/* For those quicly exited process, ptrace might not have a chance
+		to attach (proc->traced = 0). In addition, if taskstat is not
+		available, we should find out these process (mark live=0), and
+		leave it to next cleanup. */
+//#ifndef FTRAC_TRACE_USING_TASKSTAT
+		char path[PATH_MAX];
+		snprintf(path, PATH_MAX, "/proc/%d", proc->pid);
+		if (access(path, F_OK) != 0) {
+			/* process is actually dead */
+			pthread_mutex_lock(&proc->lock);
+			proc->live = 0;
+			pthread_mutex_unlock(&proc->lock);
+			DEBUG("proctab: process %d is actually dead\n", proc->pid);
+		}
+//#endif /* FTRAC_TRACE_USING_TASKSTAT */
+		return 0;	/* FALSE */
+	} else {
+		DEBUG("proctab: process %d will be removed from table\n", proc->pid);
+		return 1;	/* TRUE */
+	}
+	
+	/* shoud not get here */
+	return 0;
+}
+
+static void * proctab_cleanup(void *data)
+{
+	(void) data;
+	int secs = ftrac.table_timeout;
+	
+	while (1) {
+		sleep(secs);
+		/* cleanup exited processes */
+		DEBUG("protab: cleanup process table after %d seconds\n", secs);
+		pthread_mutex_lock(&ftrac.proctab.lock);
+		g_hash_table_foreach_remove(ftrac.proctab.table, 
+			proctab_entry_check, NULL);
+		pthread_mutex_unlock(&ftrac.proctab.lock);
+	}
+	pthread_exit((void *) 0);
 }
 
 static int proctab_init(void)
@@ -626,13 +682,21 @@ static int proctab_init(void)
 	}
 
 	pthread_mutex_init(&ftrac.proctab.lock, NULL);
+	
+	int err = pthread_create(&ftrac.proctab.thread, NULL, 
+		proctab_cleanup, NULL);
+	if (err) {
+		DEBUG("error: failed to create thread: %s\n", strerror(err));
+		return -1;
+	}
 	return 0;
 }
 
 static void proctab_destroy(void)
 {
-	g_hash_table_destroy(ftrac.proctab.table);
+	pthread_cancel(ftrac.proctab.thread);
 	pthread_mutex_destroy(&ftrac.proctab.lock);
+	g_hash_table_destroy(ftrac.proctab.table);
 }
 
 static inline proctab_entry_t proctab_lookup(pid_t pid)
@@ -761,9 +825,12 @@ static inline void sysc_logging_link(int sysc,
 static inline void proc_logging_write(proctab_entry_t proc, int flag)
 {
 	fprintf(ftrac.fp_proc,
-		"%.9f,%d,%d,%d,%s\n",
+		"%.9f,%d,%d,%d,"
+		"%lu,%lu,%lu,"
+		"%s,%s\n",
 		proc->last_stamp, proc->last_sysc, proc->pid, flag, 
-		proc->cmdline);
+		proc->stat.utime, proc->stat.stime, proc->stat.starttime,
+		proc->cmdline,proc->environ);
 }
 	
 static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
@@ -850,8 +917,10 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 	}
 }
 
-/*********** log processing routines **********/
-static void log_init(void)
+/*
+ * Initial and Destory routines
+ */
+static void logging_init(void)
 {
 	int res;
 	char file[PATH_MAX];
@@ -947,9 +1016,9 @@ static void log_init(void)
 
 	/* start logging */
 	struct utsname platform;
-
 	if (uname(&platform) == -1)
-		fprintf(stderr, "get platform info failed.\n");
+		ERROR("warning: failed to get platform info: %s\n", 
+			strerror(errno));
 	
 	ft->cmdline = procfs_get_cmdline(ft->pid);
 	fprintf(ft->fp_env,
@@ -975,11 +1044,10 @@ static void log_init(void)
 		ft->iid,
 		get_timespec(&ft->itime)
 		);
-
 	fflush(ft->fp_env);
 }
 
-static void log_destroy(struct ftrac *ft)
+static void logging_destroy(struct ftrac *ft)
 {
 	/* finish logging */
 	struct timespec end;
@@ -1144,7 +1212,7 @@ static int ctrl_flush(int sockfd)
 /*************************************************
  * Ptrace logging routines 
  ************************************************/
-static void ptrace_logging(pid_t pid, int flag)
+static void ptrace_logging(pid_t pid)
 {
 	char *env, *cmd;
 	struct proc_stat st;
@@ -1153,10 +1221,12 @@ static void ptrace_logging(pid_t pid, int flag)
 	cmd = procfs_get_cmdline(pid);
 	procfs_get_stat(pid, &st);
 	
-	/* pid,ppid,btime,elapsed,cmdline,environ */
-	fprintf(ftrac.fp_ptrace, "%d,%d,%d,%s,%s\n",
-		flag, st.pid, st.ppid, cmd, env);
-	return;
+	fprintf(ftrac.fp_ptrace,
+		"%d,%lu,%lu,%lu,%s,%s\n",
+		pid, st.utime, st.stime, st.starttime, cmd, env);
+
+	g_free(env);
+	g_free(cmd);
 }
 
 /* ptrace threading function */
@@ -1235,7 +1305,7 @@ static void * ptrace_process(void *data)
 	pthread_mutex_lock(&proc->lock);
 	proc->live = 0;
 	pthread_mutex_unlock(&proc->lock);
-	ptrace_logging(pid, 0);
+	ptrace_logging(pid);
 
 	if (ptrace(PTRACE_DETACH, pid, NULL, NULL)) {
 		DEBUG("error: PTRACE_CONT process %d: %s\n",
@@ -1377,33 +1447,36 @@ static int get_family_id(int sd)
 	return id;
 }
 
-static void proc_log_task(pid_t tid, struct taskstats *st, int liveness)
+static void proc_log_task(pid_t tid, struct taskstats *st, int live)
 {
-	proctab_entry_t entry = proctab_lookup(tid);
-	if (!entry)
+	proctab_entry_t proc = proctab_lookup(tid);
+	if (!proc)
 		return;
 	
 	/* Thread exit */
 	if (st->ac_pid == 0 && st->ac_btime == 0) {
-		DEBUG("Last thread of task group %d exited.", tid);
+		DEBUG("taskstat: last thread of task group %d exited.\n", tid);
 		return;
 	}
-
-	/* only log the process accessing the mountpoint */
+	
+	/*
 	DEBUG("pid=%d, ppid=%d, live=%d, res=%d, btime=%d, etime=%llu, cmd=%s\n", 
-		st->ac_pid, st->ac_ppid, liveness, st->ac_exitcode, 
+		st->ac_pid, st->ac_ppid, live, st->ac_exitcode, 
 		st->ac_btime, st->ac_etime, st->ac_comm);
+	*/
 
 	/* task/process still running */
-	/* TODO: hash pid and ppid */
-	fprintf(ftrac.fp_taskstat, "%d,%d,%d,%d,%d,%llu,%s\n",
-		st->ac_pid, st->ac_ppid, liveness, st->ac_exitcode, st->ac_btime, 
-		st->ac_etime, st->ac_comm);
+	fprintf(ftrac.fp_taskstat, 
+		"%d,%d,%d,%d,%d,%llu,%llu,%llu,%s\n",
+		st->ac_pid, st->ac_ppid, live, st->ac_exitcode, st->ac_btime, 
+		st->ac_etime, st->ac_utime, st->ac_stime, st->ac_comm);
 	
-	if (!liveness) {
+	if (!live) {
 		/* since process has exited, mark it as dead,
 		 * DO NOT remove dead process from table, it is not safe */
-		entry->live = 0;
+		pthread_mutex_lock(&proc->lock);
+		proc->live = 0;
+		pthread_mutex_unlock(&proc->lock);
 	}
 }
 
@@ -1423,7 +1496,7 @@ static int recv_netlink(int sock, int liveness)
 	if (msg.n.nlmsg_type == NLMSG_ERROR ||
 		!NLMSG_OK((&msg.n), (unsigned) res)) {
 		struct nlmsgerr *error = NLMSG_DATA(&msg);
-		fprintf(stderr, "fatal receive error: %d\n", error->error);
+		ERROR("warning: receive error: %s\n", strerror(error->error));
 		return 1;
 	}
 
@@ -2550,7 +2623,7 @@ static void * ftrac_init(void)
 	ftrac.iid = ftrac_rand_range(MAX_RAND_MIN, MAX_RAND_MAX); 
 
 	/* initial log file */
-	log_init();
+	logging_init();
 
 	/* startup control server */
 	ctrl_server_init();
@@ -2574,8 +2647,8 @@ static void ftrac_destroy(void *data_)
 {
 	(void) data_;
 	
-	procacc_destroy(&ftrac); /* must before log_destroy */
-	log_destroy(&ftrac);
+	procacc_destroy(&ftrac); /* must before logging_destroy */
+	logging_destroy(&ftrac);
 	ctrl_server_destroy(&ftrac);
 	remove(ftrac.sessiondir);
 	g_free(ftrac.cmdline);
@@ -2644,6 +2717,8 @@ static void usage(const char *progname)
 "    -o notify_pid=PID      process to notify on entering fuse loop\n"
 "    -o ftrac_debug         print debug information\n"
 "    -o debug_log           redirect debug information to log file\n"
+"\nFUSE logging options:\n"
+"    -o table_timeout       cache timeout for table entries (60)\n"
 "\nProcess logging options:\n"
 "    -o environ=VAR:VAR     environment variables (all)\n"
 "    -o stop_envchk         stop checking environ once updated (on)\n"
@@ -2765,6 +2840,7 @@ int main(int argc, char * argv[])
 	
 	ftrac.progname = argv[0];
 	ftrac.logbufsize = FTRAC_TRACE_LOG_BUFSIZE;
+	ftrac.table_timeout = 60;
 	ftrac.stop_envchk = 1;
 	ftrac.stop_cmdchk = 1;
 	ftrac.nlsock = 1;
