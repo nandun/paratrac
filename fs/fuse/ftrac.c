@@ -1358,7 +1358,7 @@ static int taskstat_nl_create(size_t recvbufsize)
 		return -1;
 	}
 	
-	if (recvbufsize)
+	if (recvbufsize) {
 		res = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &recvbufsize, 
 			sizeof(recvbufsize));
 		if (res < 0) {
@@ -1366,6 +1366,7 @@ static int taskstat_nl_create(size_t recvbufsize)
 					"to %lu\n", recvbufsize);
 			return -1;
 		}
+	}
 
 	memset(&local, 0, sizeof(local));
 	local.nl_family = AF_NETLINK;
@@ -1553,7 +1554,7 @@ static void taskstat_query(void *key, void *value, void *data)
 		res = taskstat_nl_send(sock, ftrac.familyid, ftrac.pid,
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_PID, &pid, sizeof(__u32));
 		if (res < 0)
-			fprintf(stderr, "failed to send tid cmd\n");
+			ERROR("error: netlink send for %d\n", ftrac.pid);
 		
 		res = taskstat_nl_recv(sock, 1);
 	}
@@ -1660,7 +1661,6 @@ static void taskstat_destroy(struct ftrac *ft)
 		res = pthread_cancel(ft->nlarr[i].thread);
 		if (res != 0)
 			fprintf(stderr, "failed to cancel thread[%d]\n", i);
-		
 	}
 
 	g_free(ft->nlarr);
@@ -1668,7 +1668,8 @@ static void taskstat_destroy(struct ftrac *ft)
 	/* log all living processes */
 	int sock = taskstat_nl_create(ft->nlbufsize);
 	if (sock < 0) {
-		fprintf(stderr, "faild to the netlink socket\n");
+		ERROR("error: create netlink socket with bufsize=%lu\n",
+			ft->nlbufsize);
 		return;
 	}
 	g_hash_table_foreach(ft->proctab.table, taskstat_query, &sock);
