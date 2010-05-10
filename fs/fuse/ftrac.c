@@ -250,8 +250,6 @@ typedef struct proctab_entry {
 	int pid;
 	int ptime;
 	int live;
-	int last_sysc;
-	double last_stamp;
 	char *environ;
 	char *cmdline;
 	int n_envchk;
@@ -634,7 +632,7 @@ static int proctab_entry_check(void *key, void *value, void *data)
 		to attach (proc->traced = 0). In addition, if taskstat is not
 		available, we should find out these process (mark live=0), and
 		leave it to next cleanup. */
-//#ifndef FTRAC_TRACE_USING_TASKSTAT
+#ifndef FTRAC_TRACE_USING_TASKSTAT
 		char path[PATH_MAX];
 		snprintf(path, PATH_MAX, "/proc/%d", proc->pid);
 		if (access(path, F_OK) != 0) {
@@ -644,7 +642,7 @@ static int proctab_entry_check(void *key, void *value, void *data)
 			pthread_mutex_unlock(&proc->lock);
 			DEBUG("proctab: process %d is actually dead\n", proc->pid);
 		}
-//#endif /* FTRAC_TRACE_USING_TASKSTAT */
+#endif /* FTRAC_TRACE_USING_TASKSTAT */
 		return 0;	/* FALSE */
 	} else {
 		DEBUG("proctab: process %d will be removed from table\n", proc->pid);
@@ -772,6 +770,7 @@ static inline void sysc_logging(int sysc, struct timespec *start,
 	/* logging
 	   csv format: stamp,pid,sysc,fid,res,elapsed */
 	/* TODO: hash pid and ppid ptime */
+	/* TAG: file_format */
 	fprintf(ftrac.fp_sysc, "%.9f,%d,%d,%lu,%d,%.9f,0,0\n",
 		stamp, pid, sysc, fid, res, elapsed);
 }
@@ -788,6 +787,7 @@ static inline void sysc_logging_openclose(int sysc, struct timespec *start,
 	off_t fsize = stat(path, &stbuf) == 0 ? stbuf.st_size : -1;
 
 	/* TODO: use hash pid and ppid */
+	/* TAG: file_format */
 	fprintf(ftrac.fp_sysc, "%.9f,%d,%d,%lu,%d,%.9f,%lu,0\n", 
 		stamp, pid, sysc, fid, res, elapsed, fsize);
 }
@@ -801,6 +801,7 @@ static inline void sysc_logging_io(int sysc, struct timespec *start,
 	unsigned long fid = filetab_lookup_insert(path);
 	
 	/* TODO: use hash pid and ppid */
+	/* TAG: file_format */
 	fprintf(ftrac.fp_sysc, "%.9f,%d,%d,%lu,%d,%.9f,%lu,%lu\n", 
 		stamp, pid, sysc, fid, res, elapsed, size, offset);
 }
@@ -814,6 +815,7 @@ static inline void sysc_logging_link(int sysc,
 	unsigned long fid_from = filetab_lookup_insert(from);
 	unsigned long fid_to = filetab_lookup_insert(to);
 	
+	/* TAG: file_format */
 	fprintf(ftrac.fp_sysc, "%.9f,%d,%d,%lu,%d,%.9f,%lu,0\n", 
 		stamp, pid, sysc, fid_from, res, elapsed, fid_to);
 }
@@ -824,13 +826,11 @@ static inline void sysc_logging_link(int sysc,
 
 static inline void proc_logging_write(proctab_entry_t proc, int flag)
 {
+	/* TAG: file_format */
 	fprintf(ftrac.fp_proc,
-		"%.9f,%d,%d,%d,"
-		"%lu,%lu,%lu,"
-		"%s,%s\n",
-		proc->last_stamp, proc->last_sysc, proc->pid, flag, 
-		proc->stat.utime, proc->stat.stime, proc->stat.starttime,
-		proc->cmdline,proc->environ);
+		"%d,%d,%lu,%lu,%lu,%s,%s\n",
+		proc->pid, flag, proc->stat.utime, proc->stat.stime, 
+		proc->stat.starttime, proc->cmdline,proc->environ);
 }
 	
 static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
@@ -844,8 +844,6 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 		proc = g_new0(struct proctab_entry, 1);
 		proc->pid = pid;
 		proc->live = 1;
-		proc->last_sysc = sysc;
-		proc->last_stamp = get_timespec(stamp);
 		/* TODO: proc->ptime = ?*/
 		
 		/* not all /proc/[pid]/environ are accessible */
@@ -911,8 +909,6 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 		}
 		
 		/* update other fields */
-		proc->last_sysc = sysc;
-		proc->last_stamp = get_timespec(stamp);
 		procfs_get_stat(pid, &proc->stat);
 	}
 }
@@ -1221,8 +1217,8 @@ static void ptrace_logging(pid_t pid)
 	cmd = procfs_get_cmdline(pid);
 	procfs_get_stat(pid, &st);
 	
-	fprintf(ftrac.fp_ptrace,
-		"%d,%lu,%lu,%lu,%s,%s\n",
+	/* TAG: file_format */
+	fprintf(ftrac.fp_ptrace, "%d,%lu,%lu,%lu,%s,%s\n",
 		pid, st.utime, st.stime, st.starttime, cmd, env);
 
 	g_free(env);
@@ -1249,15 +1245,14 @@ static void * ptrace_process(void *data)
 	g_free(data);
 			
 	if (ptrace(PTRACE_ATTACH, pid, NULL, NULL)) {
-		DEBUG("faild to attach process %d: %s\n", pid, strerror(errno));
+		DEBUG("error: attach process %d: %s\n", pid, strerror(errno));
 		pthread_exit((void *) 1);
 	}
 	
-	DEBUG("waiting process %d to be attached\n", pid);
 	waitpid(pid, &status, 0);
 
 	if (ptrace(PTRACE_SETOPTIONS, pid, NULL, PTRACE_O_TRACEEXIT)) {
-		DEBUG("failed to set TRACE_EXIT on process %d: %s\n", 
+		DEBUG("error: set TRACE_EXIT on process %d: %s\n", 
 			pid, strerror(errno));
 		pthread_exit((void *) 1);
 	}
@@ -1336,21 +1331,23 @@ static void ptrace_thread_spawn(pthread_t *thread, pid_t pid)
  ************************************************/
 static int get_cpus_num(void)
 {
-  char buf[MAX_LINE];
-  int id, max_id = 0;
-  FILE *fp = fopen("/proc/stat", "r");
-  while(fgets(buf, MAX_LINE, fp)){
-    if(!strncmp(buf, "cpu", 3) && isdigit(buf[3])){
-      sscanf(buf+3, "%d", &id);
-      if(max_id < id)
-        max_id = id;
-    }
-  }
-  fclose(fp);
-  return max_id + 1;
+	char buf[MAX_LINE];
+	int id, max_id = 0;
+	FILE *fp = fopen("/proc/stat", "r");
+	
+	while(fgets(buf, MAX_LINE, fp)){
+		if(!strncmp(buf, "cpu", 3) && isdigit(buf[3])){
+			sscanf(buf+3, "%d", &id);
+			if(max_id < id)
+				max_id = id;
+		}
+	}
+	
+	fclose(fp);
+	return max_id + 1;
 }
 
-static int create_netlink_sock(size_t recvbufsize)
+static int taskstat_nl_create(size_t recvbufsize)
 {
 	struct sockaddr_nl local;
 	int fd, res = 0;
@@ -1382,7 +1379,7 @@ static int create_netlink_sock(size_t recvbufsize)
 	return fd;
 }
 
-int send_netlink_cmd(int sd, __u16 nlmsg_type, __u32 nlmsg_pid,
+int taskstat_nl_send(int sd, __u16 nlmsg_type, __u32 nlmsg_pid,
 	__u8 genl_cmd, __u16 nla_type, void *nla_data, int nla_len)
 {
 	struct nlattr *na;
@@ -1420,7 +1417,7 @@ int send_netlink_cmd(int sd, __u16 nlmsg_type, __u32 nlmsg_pid,
 	return 0;
 }
 
-static int get_family_id(int sd)
+static int taskstat_get_familyid(int sd)
 {
 	int id = 0, rc;
 	struct nlattr *na;
@@ -1430,7 +1427,7 @@ static int get_family_id(int sd)
 	struct msgtemplate ans;
 
 	strncpy(name, TASKSTATS_GENL_NAME, 100);
-	rc = send_netlink_cmd(sd, GENL_ID_CTRL, getpid(), CTRL_CMD_GETFAMILY,
+	rc = taskstat_nl_send(sd, GENL_ID_CTRL, getpid(), CTRL_CMD_GETFAMILY,
 			CTRL_ATTR_FAMILY_NAME, (void *)name,
 			strlen(TASKSTATS_GENL_NAME)+1);
 	
@@ -1438,8 +1435,10 @@ static int get_family_id(int sd)
 	if (ans.n.nlmsg_type == NLMSG_ERROR ||
 	    (rep_len < 0) || !NLMSG_OK((&ans.n), (unsigned) rep_len))
 		return 0;
-
-	na = (struct nlattr *) GENLMSG_DATA(&ans); /* warning? */
+	
+	int dummy;	/* To avoid strict-aliasing warning */
+	memset(&dummy, 0, sizeof(int));
+	na = (struct nlattr *) (GENLMSG_DATA(&ans) + dummy);
 	na = (struct nlattr *) ((char *) na + NLA_ALIGN(na->nla_len));
 	if (na->nla_type == CTRL_ATTR_FAMILY_ID) {
 		id = *(__u16 *) NLA_DATA(na);
@@ -1447,7 +1446,7 @@ static int get_family_id(int sd)
 	return id;
 }
 
-static void proc_log_task(pid_t tid, struct taskstats *st, int live)
+static void taskstat_logging(pid_t tid, struct taskstats *st, int live)
 {
 	proctab_entry_t proc = proctab_lookup(tid);
 	if (!proc)
@@ -1459,13 +1458,7 @@ static void proc_log_task(pid_t tid, struct taskstats *st, int live)
 		return;
 	}
 	
-	/*
-	DEBUG("pid=%d, ppid=%d, live=%d, res=%d, btime=%d, etime=%llu, cmd=%s\n", 
-		st->ac_pid, st->ac_ppid, live, st->ac_exitcode, 
-		st->ac_btime, st->ac_etime, st->ac_comm);
-	*/
-
-	/* task/process still running */
+	/* TAG: file_format */
 	fprintf(ftrac.fp_taskstat, 
 		"%d,%d,%d,%d,%d,%llu,%llu,%llu,%s\n",
 		st->ac_pid, st->ac_ppid, live, st->ac_exitcode, st->ac_btime, 
@@ -1480,7 +1473,7 @@ static void proc_log_task(pid_t tid, struct taskstats *st, int live)
 	}
 }
 
-static int recv_netlink(int sock, int liveness)
+static int taskstat_nl_recv(int sock, int live)
 {
 	struct msgtemplate msg;
 	struct nlattr *na;
@@ -1499,9 +1492,6 @@ static int recv_netlink(int sock, int liveness)
 		ERROR("warning: receive error: %s\n", strerror(error->error));
 		return 1;
 	}
-
-	//DEBUG("nlmsghdr size=%zu, nlmsg_len=%d, rep_len=%d\n",
-	//	sizeof(struct nlmsghdr), msg.n.nlmsg_len, res);
 	
 	rep_len = GENLMSG_PAYLOAD(&msg.n);
 	na = (struct nlattr *) GENLMSG_DATA(&msg);
@@ -1509,47 +1499,47 @@ static int recv_netlink(int sock, int liveness)
 	while (len < rep_len) {
 		len += NLA_ALIGN(na->nla_len);
 		switch (na->nla_type) {
-		case TASKSTATS_TYPE_AGGR_TGID:
-			/* Fall through */
-		case TASKSTATS_TYPE_AGGR_PID:
-			aggr_len = NLA_PAYLOAD(na->nla_len);
-			len2 = 0;
-			/* For nested attributes, na follows */
-			na = (struct nlattr *) NLA_DATA(na);
-			while (len2 < aggr_len) {
-				switch (na->nla_type) {
-				case TASKSTATS_TYPE_PID:
-					rtid = *(int *) NLA_DATA(na);
-					/* DEBUG("TASKSTATS_TYPE_PID %d\n", rtid); */
-					break;
-				case TASKSTATS_TYPE_TGID:
-					rtid = *(int *) NLA_DATA(na);
-					/* DEBUG("TASKSTATS_TYPE_TGID %d\n", rtid); */
-					break;
-				case TASKSTATS_TYPE_STATS:
-					count++;
-					proc_log_task(rtid, (struct taskstats *) NLA_DATA(na), 
-						liveness);
-					break;
-				default:
-					fprintf(stderr, "unknown nested nla_type %d\n",
-						na->nla_type);
-					break;
+			case TASKSTATS_TYPE_AGGR_TGID:
+				/* Fall through */
+			case TASKSTATS_TYPE_AGGR_PID:
+				aggr_len = NLA_PAYLOAD(na->nla_len);
+				len2 = 0;
+				/* For nested attributes, na follows */
+				na = (struct nlattr *) NLA_DATA(na);
+				while (len2 < aggr_len) {
+					switch (na->nla_type) {
+					case TASKSTATS_TYPE_PID:
+						rtid = *(int *) NLA_DATA(na);
+						/* DEBUG("TASKSTATS_TYPE_PID %d\n", rtid); */
+						break;
+					case TASKSTATS_TYPE_TGID:
+						rtid = *(int *) NLA_DATA(na);
+						/* DEBUG("TASKSTATS_TYPE_TGID %d\n", rtid); */
+						break;
+					case TASKSTATS_TYPE_STATS:
+						count++;
+						taskstat_logging(rtid, 
+							(struct taskstats *) NLA_DATA(na), live);
+						break;
+					default:
+						fprintf(stderr, "unknown nested nla_type %d\n",
+							na->nla_type);
+						break;
+					}
+					len2 += NLA_ALIGN(na->nla_len);
+					na = (struct nlattr *) ((char *) na + len2);
 				}
-				len2 += NLA_ALIGN(na->nla_len);
-				na = (struct nlattr *) ((char *) na + len2);
-			}
-			break;
-		default:
-			fprintf(stderr, "unknown nla_type %d\n", na->nla_type);
-			break;
+				break;
+			default:
+				fprintf(stderr, "unknown nla_type %d\n", na->nla_type);
+				break;
 		}
 		na = (struct nlattr *) (GENLMSG_DATA(&msg) + len);
 	}
 	return 0;
 }
 
-static void liveproc_log(gpointer key, gpointer value, gpointer data)
+static void taskstat_query(void *key, void *value, void *data)
 {
 	int sock, *sockp, res;
 	pid_t *pidp, pid;
@@ -1560,28 +1550,28 @@ static void liveproc_log(gpointer key, gpointer value, gpointer data)
 	proctab_entry_t entry = (proctab_entry_t) value;
 	
 	if (entry->live) {
-		res = send_netlink_cmd(sock, ftrac.familyid, ftrac.pid,
+		res = taskstat_nl_send(sock, ftrac.familyid, ftrac.pid,
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_PID, &pid, sizeof(__u32));
 		if (res < 0)
 			fprintf(stderr, "failed to send tid cmd\n");
 		
-		res = recv_netlink(sock, 1);
+		res = taskstat_nl_recv(sock, 1);
 	}
 }
 
-static void * procacc_process(void *data)
+static void * taskstat_process(void *data)
 {
 	int err = 0;
 	netlink_channel_t nl = (netlink_channel_t) data;
 
 	do {
-		err = recv_netlink(nl->sock, 0);
+		err = taskstat_nl_recv(nl->sock, 0);
 	} while (!err);
 
 	err ? pthread_exit((void *) 1) : pthread_exit((void *) 0);	
 }
 
-static void procacc_init(void)
+static void taskstat_init(void)
 {
 	int res, i;
 	pthread_t thread_id;
@@ -1594,37 +1584,47 @@ static void procacc_init(void)
 	following:
 		- increase the receive buffer sizes for the netlink sockets opened by
 		  listeners to receive exit data.
-		- create more listeners and reduce the number of cpus being listened to
-		  by each listener. In the extreme case, there could be one listener
-		  for each cpu. Users may also consider setting the cpu affinity of the
+		- create more listeners and reduce the number of cpus being 
+		  listened to by each listener. In the extreme case, there could 
+		  be one listener for each cpu. Users may also consider setting 
+		  the cpu affinity of the
 		  listener to the subset of cpus to which it listens, especially if
 		  they are listening to just one cpu. */
 	if (ft->nlsock == 0 || ft->nlsock > ft->ncpus)
 		ft->nlsock = ft->ncpus;
-	DEBUG("cpus: %d, nlsocks: %d\n", ft->ncpus, ft->nlsock);
+	
+	DEBUG("taskstat: cpus=%d, nlsocks=%d\n", ft->ncpus, ft->nlsock);
 
 	/* create netlink socket array */
 	ft->nlarr = g_new0(struct netlink_channel, ft->nlsock);
 	for (i = 0; i < ft->nlsock; i++) {
-		ft->nlarr[i].sock = create_netlink_sock(ft->nlbufsize);
+		ft->nlarr[i].sock = taskstat_nl_create(ft->nlbufsize);
 		if (ft->nlarr[i].sock < 0) {
-			fprintf(stderr, "faild to the %dth netlink socket\n", i);
+			ERROR("error: create the %dth netlink socket\n", i);
 			exit(1);
 		}
 	}
 
-	/* get family id */
-	ft->familyid = get_family_id(ft->nlarr[0].sock);
+	ft->familyid = taskstat_get_familyid(ft->nlarr[0].sock);
 
 	/* assign cpus to listeners */
 	int q = ft->ncpus / ft->nlsock;
 	int r = ft->ncpus % ft->nlsock;
 	int start = 0, end;
-	for (i = 0; i < ft->nlsock; i++) { /* figure out the assignment */ end = start + q; if (r > 0) { end += 1; r -= 1; } if (start == end - 1) snprintf(ft->nlarr[i].cpumask, 32, "%d", start); else snprintf(ft->nlarr[i].cpumask, 32, "%d-%d", start, end-1);
+	for (i = 0; i < ft->nlsock; i++) { /* figure out the assignment */
+		end = start + q; 
+		if (r > 0) { 
+			end += 1; 
+			r -= 1; 
+		} 
+		if (start == end - 1) 
+			snprintf(ft->nlarr[i].cpumask, 32, "%d", start);
+		else 
+			snprintf(ft->nlarr[i].cpumask, 32, "%d-%d", start, end-1);
 		
-		DEBUG("cpumask[%d]: %s\n", i, ft->nlarr[i].cpumask);
+		DEBUG("taskstat: cpumask[%d]: %s\n", i, ft->nlarr[i].cpumask);
 		
-		res = send_netlink_cmd(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_REGISTER_CPUMASK, 
 			&ft->nlarr[i].cpumask, strlen(ft->nlarr[i].cpumask) + 1);
 		if (res < 0) {
@@ -1634,7 +1634,7 @@ static void procacc_init(void)
 		start = end;
 		
 		/* start listening thread */
-		res = pthread_create(&thread_id, NULL, procacc_process, 
+		res = pthread_create(&thread_id, NULL, taskstat_process, 
 			(void *) &ft->nlarr[i]);
 		if (res != 0) {
 			fprintf(stderr, "failed to create thread, %s\n", strerror(res));
@@ -1645,12 +1645,12 @@ static void procacc_init(void)
 	}
 }
 
-static void procacc_destroy(struct ftrac *ft)
+static void taskstat_destroy(struct ftrac *ft)
 {
 	int res, i;
 	
 	for (i = 0; i < ft->nlsock; i++) {
-		res = send_netlink_cmd(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
 			&(ft->nlarr[i].cpumask), strlen(ft->nlarr[i].cpumask) + 1);
 		if (res < 0)
@@ -1666,12 +1666,12 @@ static void procacc_destroy(struct ftrac *ft)
 	g_free(ft->nlarr);
 	
 	/* log all living processes */
-	int sock = create_netlink_sock(ft->nlbufsize);
+	int sock = taskstat_nl_create(ft->nlbufsize);
 	if (sock < 0) {
 		fprintf(stderr, "faild to the netlink socket\n");
 		return;
 	}
-	g_hash_table_foreach(ft->proctab.table, liveproc_log, &sock);
+	g_hash_table_foreach(ft->proctab.table, taskstat_query, &sock);
 	close(sock);
 }
 
@@ -2629,7 +2629,7 @@ static void * ftrac_init(void)
 	ctrl_server_init();
 
 	/* initial process accounting */
-	procacc_init();
+	taskstat_init();
 	
     /* 
      * notify the caller we are done for initialization
@@ -2647,7 +2647,7 @@ static void ftrac_destroy(void *data_)
 {
 	(void) data_;
 	
-	procacc_destroy(&ftrac); /* must before logging_destroy */
+	taskstat_destroy(&ftrac); /* must before logging_destroy */
 	logging_destroy(&ftrac);
 	ctrl_server_destroy(&ftrac);
 	remove(ftrac.sessiondir);
