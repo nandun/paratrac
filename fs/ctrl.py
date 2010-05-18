@@ -11,7 +11,7 @@ import socket
 import signal
 import time
 
-from common.utils import *
+from modules.utils import *
 
 FTRAC_PATH_PREFIX = "/tmp"
 FTRAC_SIGNAL_INIT = signal.SIGUSR1

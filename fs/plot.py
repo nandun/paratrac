@@ -26,21 +26,141 @@
 
 import os
 import warnings
-import numpy
-import Gnuplot
-import pydot
 import xml.dom.minidom as minidom
+
+import numpy as np
 import matplotlib
 matplotlib.use("Cairo")
 warnings.simplefilter("ignore", DeprecationWarning)
 import matplotlib.pyplot as pyplot
 import networkx as nx
 
-from common.utils import *
-import data
-
+from modules.utils import SYSCALL
+from modules import utils
+from data import Database
 
 class Plot:
+    def __init__(self, path):
+        self.db = Database("%s/trace.sqlite" % path)
+        self.path = "%s/figures" % path
+        if not os.path.exists(self.path):
+            utils.smart_makedirs(self.path)
+        self.ptree = None
+        self.COLORS = ["blue", "yellow", "red", "green"]
+        self.N_COLORS = len(self.COLORS)
+
+    def _stacked_lines(self, path, x, yseries):
+        pyplot.clf()
+        y_data = np.row_stack(yseries)
+        y_data_stacked = np.cumsum(y_data, axis=0)
+        fig = pyplot.figure()
+        ax1 = fig.add_subplot(111)
+        y_start = 0
+        y_end = y_data_stacked[0]
+        for i in range(0, len(y_data_stacked)):
+            y_end = y_data_stacked[i]
+            ax1.fill_between(x, y_start, y_end, 
+                facecolor=self.COLORS[i % self.N_COLORS],
+                alpha=0.7)
+            y_start = y_end
+        pyplot.savefig(path)
+     
+    def init_proctree(self):
+        self.ptree = DiGraph()
+        for pid, ppid in self.db.proc_sel("pid,ppid"):
+            self.ptree.add_edge(ppid, pid)
+        assert nx.is_directed_acyclic_graph(self.ptree)
+    
+    def plot_procs_stats(self):
+        if self.ptree is None: self.init_proctree()
+        # sort process in topology order
+        procs = nx.topological_sort(self.ptree)
+        procs.remove(0)
+        n_procs = len(procs)
+        
+        utime_sum = 0.0
+        stime_sum = 0.0
+        utime_cums = []
+        stime_cums = []
+
+        rtime_sum = 0.0
+        wtime_sum = 0.0
+        rtime_cums = []
+        wtime_cums = []
+
+        rbytes_sum = 0.0
+        wbytes_sum = 0.0
+        rbytes_cums = []
+        wbytes_cums = []
+
+        for p in procs:
+            live, elapsed, utime, stime = \
+                self.db.proc_sel("live,elapsed,utime,stime", pid=p)[0]
+            if live:
+                n_procs -= 1
+                continue
+            """
+            sysc_elapsed = self.db.sysc_sum("elapsed", pid=p)[0]
+            if sysc_elapsed is None:
+                sysc_elapsed = 0
+            
+            """
+            rtime, rbytes = self.db.sysc_sum("elapsed,aux1", pid=p, 
+                sysc=SYSCALL['read'])[0]
+            if rtime is None:
+                rtime = 0
+                rbytes = 0
+            
+            wtime, wbytes = self.db.sysc_sum("elapsed,aux1", pid=p, 
+                sysc=SYSCALL['write'])[0]
+            if wtime is None:
+                wtime = 0
+                wbytes = 0
+            
+            rtime_sum += rtime
+            wtime_sum += wtime
+            rbytes_sum += rbytes
+            wbytes_sum += wbytes
+            print rtime_sum, wtime_sum, rbytes_sum, wbytes_sum
+            continue
+            
+            utime_sum += utime
+            utime_cums.append(utime_sum)
+            stime_sum += stime
+            stime_cums.append(stime_sum)
+
+            rtime_sum += rtime
+            wtime_sum += wtime
+            rtime_cums.append(rtime_sum)
+            wtime_cums.append(wtime_sum)
+
+            rbytes_sum += rbytes
+            wbytes_sum += wbytes
+            rbytes_cums.append(rbytes_sum)
+            wbytes_cums.append(wbytes_sum)
+        
+        self._stacked_lines("%s/%s" % (self.path, "procs_cputime_ratio"),
+            np.arange(0, n_procs), (utime_cums, stime_cums))
+        
+        self._stacked_lines("%s/%s" % (self.path, "procs_iotime_ratio"),
+            np.arange(0, n_procs), (rtime_cums, wtime_cums))
+        
+        self._stacked_lines("%s/%s" % (self.path, "procs_iobytes_ratio"),
+            np.arange(0, n_procs), (rbytes_cums, wbytes_cums))
+
+    def plot(self, plist=[]):
+        if "procs_stats" in plist:
+            self.plot_procs_stats()
+
+class ProcTree:
+    def __init__(self):
+        self.g = DiGraph()
+
+    def set_edges(self, edges):
+        for s,t in edges:
+            self.g.add_edge(s, t)
+
+class Plot2:
     """Plot data chart"""
     def __init__(self, datadir):
         self.datadir = os.path.abspath(datadir)
