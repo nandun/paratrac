@@ -20,8 +20,8 @@
 # ParaTrac Version
 #
 
-PARATRAC_VERSION = 0.3
-PARATRAC_DATE = "2009-12-30"
+PARATRAC_VERSION = 0.4
+PARATRAC_DATE = "2010-05-10"
 PARATRAC_AUTHOR = "Nan Dun"
 PARATRAC_BUG_REPORT = "dunnan@yl.is.s.u-tokyo.ac.jp"
 PARATRAC_WEB = "http://paratrac.googlecode.com/"

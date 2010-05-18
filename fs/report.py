@@ -24,10 +24,9 @@
 import sys
 import os
 import time
-import HTMLgen
-import HTMLcolors
 
-from common.utils import *
+import modules.utils as utils
+import modules.DHTML as DHTML
 import data
 import plot
 
@@ -45,19 +44,19 @@ class Report():
         # report root dir
         self.rdir = os.path.abspath("%s/report" % self.datadir)
         if not os.path.exists(self.rdir):
-            smart_makedirs(self.rdir)
+            utils.smart_makedirs(self.rdir)
         # figures dir
         self.fdir = os.path.abspath("%s/figures" % self.rdir)
         if not os.path.exists(self.fdir):
-            smart_makedirs(self.fdir)
+            utils.smart_makedirs(self.fdir)
         # tables dir
         self.tdir = os.path.abspath("%s/tables" % self.rdir)
         if not os.path.exists(self.tdir):
-            smart_makedirs(self.tdir)
+            utils.smart_makedirs(self.tdir)
         # data dir
         self.ddir = os.path.abspath("%s/data" % self.rdir)
         if not os.path.exists(self.ddir):
-            smart_makedirs(self.ddir)
+            utils.smart_makedirs(self.ddir)
 
         # unit
         self.unit = {}
@@ -66,11 +65,14 @@ class Report():
 
     def __del__(self):
         self.db.close()
+
+    def html(self):
+        print "html"
     
     #
     # HTML report
     #
-    def html(self):
+    def html_2(self):
         HTMLgen.PRINTECHO = 0   # turn off HTMLgen verbose
 
         start = (time.localtime(), timer())

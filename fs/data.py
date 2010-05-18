@@ -17,165 +17,135 @@
 #############################################################################
 
 #
-# fsdata.py
+# fs/data.py
 # Filesystem Trace Database
 #
 
 import os
-import sqlite3
-import cPickle
-import scipy
-import numpy
 
-from common.utils import *
+from modules.utils import SYSCALL
+from modules import utils
+from modules.data import Database as CommonDatabase
 
-class Database:
-    def __init__(self, dbfile, initTables):
-        self.dbfile = os.path.abspath(dbfile)
-        self.db = sqlite3.connect(self.dbfile)
-        self.cur = self.db.cursor()
-        self.tables = []    # all tables in database
+class Database(CommonDatabase):
+    def __init__(self, path):
+        CommonDatabase.__init__(self, path)
 
-        if initTables: self.init_tables()
-        
         # Only attributes can be accurately queried
-        self.SYSC_ATTR = ["iid", "sysc"]
+        self.SYSC_ATTR = ["iid", "stamp", "pid", "sysc", "fid", "res",
+            "elapsed", "aux1", "aux2"]
         self.FILE_ATTR = ["iid", "fid", "path"]
         self.PROC_ATTR = ["iid", "pid", "ppid", "live", 
             "res", "cmdline", "environ"]
 
-    def __del__(self):
-        if self.db is not None:
-            self.db.commit()
-            self.db.close()
-
-    def close(self):
-        self.db.commit()
-        self.db.close()
-        self.db = None  # mark db closed
-
-    def cursor(self):
-        return self.db.cursor()
-
-    def init_tables(self):
-        """Create tables for database
-        NOTE: existing tables will be dropped"""
-        # runtime
-        self.cur.execute("DROP TABLE IF EXISTS runtime")
-        self.cur.execute("CREATE TABLE IF NOT EXISTS runtime"
-            "(item TEXT, value TEXT)")
-        self.tables.append("runtime")
+    def _set_tabs(self):
+        self.tab["runtime"] = "item TEXT, value TEXT"
         
-        # table: syscall
-        self.cur.execute("DROP TABLE IF EXISTS syscall")
-        self.cur.execute("CREATE TABLE IF NOT EXISTS syscall "
-            "(stamp DOUBLE, iid INTEGER, pid INTEGER, "
-            "sysc INTEGER, fid INTEGER, res INTEGER, elapsed DOUBLE, "
-            "aux1 INTEGER, aux2 INTEGER)")
-        self.tables.append("syscall")
+        self.tab["file"] = "iid INTEGER, fid INTEGER, path TEXT"
         
-        # table: proc
-        self.cur.execute("DROP TABLE IF EXISTS proc")
-        self.cur.execute("CREATE TABLE IF NOT EXISTS proc "
-            "(iid INTGER, pid INTEGER, ppid INTEGER, "
-            "live INTEGER, res INTEGER, btime FLOAT, elapsed FLOAT, "
-            "cmdline TEXT, environ TEXT)")
+        self.tab["sysc"] = "iid INTEGER, stamp DOUBLE, pid INTEGER, " \
+            "sysc INTEGER, fid INTEGER, res INTEGER, elapsed DOUBLE, " \
+            "aux1 INTEGER, aux2 INTEGER"
         
-        # table: file 
-        self.cur.execute("DROP TABLE IF EXISTS file")
-        self.cur.execute("CREATE TABLE IF NOT EXISTS file"
-            "(iid INTEGER, fid INTEGER, path TEXT)")
+        self.tab["proc"] = "iid INTGER, pid INTEGER, ppid INTEGER, " \
+            "live INTEGER, res INTEGER, btime FLOAT, elapsed FLOAT, " \
+            "utime FLOAT, stime FLOAT, cmdline TEXT, environ TEXT"
         
-    def import_rawdata(self, datadir=None):
-        if datadir is None:
-            datadir = os.path.dirname(self.dbfile)
+    def import_logs(self, logdir=None):
+        if logdir is None:
+            logdir = os.path.dirname(self.db)
 
-        cur = self.cursor()
+        self._create_tabs(True)
 
-        # import runtime environment
-        envFile = open("%s/env.log" % datadir)
-        assert envFile.readline().startswith("#")
-        for line in envFile.readlines():
-            cur.execute("INSERT INTO runtime VALUES (?,?)", 
-                line.strip().split(":", 1))
-        envFile.close()
+        iid = 0
         
-        # get instance id for further usage
-        iids = str(self.runtime_get_value("iid")) # note that iids is a string
-        t_allstart = float(self.runtime_get_value("start"))
+        runtime = {}
+        f = open("%s/runtime.log" % logdir)
+        for l in f.readlines():
+            item, val = l.strip().split(":", 1)
+            self.cur.execute("INSERT INTO runtime VALUES (?,?)", (item, val))
+            if val.isdigit():
+                runtime[item] = eval(val)
+            else:
+                runtime[item] = "%s" % val
+        f.close()
         
-        # import trace log data
-        traceFile = open("%s/trace.log" % datadir)
-        assert traceFile.readline().startswith("#")
-        for line in traceFile.readlines():
-            values = line.strip().split(",")
-            # normalize stamp time, TODO: use trace start time first
-            values[0] = "%f" % (float(values[0]) - t_allstart)
-            values.insert(1, iids) # insert iid to the 2nd value
-            cur.execute("INSERT INTO syscall VALUES (?,?,?,?,?,?,?,?,?)", 
-                values)
-        traceFile.close()
+        f = open("%s/file.log" % logdir)
+        for l in f.readlines():
+            fid, path = l.strip().split(":", 1)
+            self.cur.execute("INSERT INTO file VALUES (?,?,?)", 
+                (iid, fid, path))
+        f.close()
+        
+        f = open("%s/sysc.log" % logdir)
+        for l in f.readlines():
+            stamp,pid,sysc,fid,res,elapsed,aux1,aux2 = l.strip().split(",")
+            self.cur.execute("INSERT INTO sysc VALUES (?,?,?,?,?,?,?,?,?)",
+                (iid,stamp,pid,sysc,fid,res,elapsed,aux1,aux2))
+        f.close()
+        
+        # import process logs according to the accuracy of information
+        CLK_TCK = runtime['clktck']
+        SYS_BTIME = runtime['sysbtime']
+        have_taskstat_log = False
+        if os.path.exists("%s/taskstat.log" % logdir):
+            f = open("%s/taskstat.log" % logdir)
+            for l in f.readlines():
+                pid,ppid,live,res,btime,elapsed,utime,stime,cmd \
+                    = l.strip().split(",")
+                # btime (sec), elapsed (usec), utime (usec), stime (usec)
+                elapsed = float(elapsed) / 1000000.0
+                utime = float(utime) / 1000000.0
+                stime = float(stime) / 1000000.0
+                self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
+                    "btime,elapsed,utime,stime) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (iid,pid,ppid,live,res,btime,elapsed,utime,stime))
+            f.close()
+            have_taskstat_log = True
 
-        # import process log
-        procmapFile = open("%s/proc/map" % datadir)
-        assert procmapFile.readline().startswith("#")
-        procmap = {}
-        lineno = 0
-        for line in procmapFile.readlines():
-            lineno += 1
-            try:
-                pid, ppid, cmdline = line.strip().split(":", 2)
-            except ValueError:
-                sys.stderr.write("Warning: line %d: %s\n" % (lineno, line))
+        procs = set()
+        f = open("%s/ptrace.log" % logdir)
+        for l in f.readlines():
+            pid,ppid,start,stamp,utime,stime,cmd,env \
+                = l.strip().split(",")
+            if not have_taskstat_log:
+                # calculate real btime and elapsed
+                btime = SYS_BTIME + float(start) / CLK_TCK
+                elapsed = float(stamp) - btime
+                utime = float(utime) / CLK_TCK
+                stime = float(stime) / CLK_TCK
+                self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
+                    "btime,elapsed,utime,stime,cmdline,environ) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
+            else:
+                self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
+                    "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
+            procs.add(eval(pid))
+        f.close()
+
+        f = open("%s/proc.log" % logdir)
+        for l in f.readlines():
+            flag,pid,ppid,start,stamp,utime,stime,cmd,env \
+                = l.strip().split(",")
+            if not flag or eval(pid) in procs: # just ignore start status right now
                 continue
-            # WARNING: workaround to fix the cmdline of process 1
-            procmap[pid] = [iids, pid, ppid, cmdline]
-        procmapFile.close()
-        # fix process info
-        procmap["1"][2] = "1"
-        procmap["1"][3] = "/sbin/init"
+            if not have_taskstat_log:
+                btime = SYS_BTIME + float(start) / CLK_TCK
+                elapsed = float(stamp) - btime
+                utime = float(utime) / CLK_TCK
+                stime = float(stime) / CLK_TCK
+                self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
+                    "btime,elapsed,utime,stime,cmdline,environ) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
+            else:
+                self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
+                    "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
+                 
+        f.close()
+        self.con.commit()
         
-        procstatFile = open("%s/proc/stat" % datadir)
-        assert procstatFile.readline().startswith("#")
-        for line in procstatFile.readlines():
-            pid,ppid,live,res,btime,elapsed,cmd = line.strip().split(",", 6)
-            # must use ppid in proc/map
-            # taskstat consider ppid of process as 1, since its parent dead
-            procmap[pid].insert(3, elapsed)
-            # normalize time
-            procmap[pid].insert(3, "%d" % (int(btime) - t_allstart))
-            procmap[pid].insert(3, res)
-            procmap[pid].insert(3, live)
-        procstatFile.close()
-
-        procenvironFile = open("%s/proc/environ" % datadir)
-        assert procenvironFile.readline().startswith("#")
-        for line in procenvironFile.readlines():
-            stamp, pid, environ = line.strip().split(",", 2)
-            if len(procmap[pid]) == 8:
-                procmap[pid].append(environ)
-            elif len(procmap[pid]) == 9:
-                procmap[pid][8] = environ
-        procenvironFile.close()
-
-        for v in procmap.values():
-            try:
-                self.cur.execute(
-                    "INSERT INTO proc VALUES (?,?,?,?,?,?,?,?,?)", v)
-            except:
-                print "incomplete value", v, len(v)
-
-        # import file map data
-        filemapFile = open("%s/file.map" % datadir)
-        assert filemapFile.readline().startswith("#")
-        for line in filemapFile.readlines():
-            values = line.strip().split(":", 1)
-            values.insert(0, iids)
-            cur.execute("INSERT INTO file VALUES (?,?,?)", values)
-        filemapFile.close()
-        
-        self.db.commit()
-
     # runtime table routines
     def runtime_sel(self, fields="*"):
         self.cur.execute("SELECT %s FROM runtime" % fields)
@@ -193,11 +163,22 @@ class Database:
             % fields, (sysc,))
         return self.cur.fetchall()
     
+    def sysc_sum(self, columns, **where):
+        columns = columns.split(',')
+        columns = ','.join(map(lambda s:"SUM(%s)"%s, columns))
+        qstr = "SELECT %s FROM sysc" % columns
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
+            utils.list_intersect([self.SYSC_ATTR, where.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
+        return self.cur.fetchall()
+
+    
     def sysc_count(self, sysc):
         self.cur.execute("SELECT COUNT(*) FROM syscall WHERE sysc=?", (sysc,))
         return self.cur.fetchone()[0]
     
-    def sysc_sum(self, sysc, field):
+    def sysc_sum2(self, sysc, field):
         cur = self.db.cursor()
         cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=?"
         "GROUP BY sysc" % field, (sysc,))
@@ -245,15 +226,6 @@ class Database:
             (iid, sysc, fid))
         return self.cur.fetchall()
 
-    # proc table routines
-    def proc_sel(self, columns, **where):
-        qstr = "SELECT %s FROM proc" % columns
-        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
-            list_intersect([self.PROC_ATTR, where.keys()])))
-        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
-        self.cur.execute(qstr)
-        return self.cur.fetchall()
-    
     # file table routines
     def file_sel(self, columns, **where):
         qstr = "SELECT %s FROM file" % columns
@@ -317,6 +289,23 @@ class Database:
                 procs.extend(procs_pc)
 
         return procs
+    
+    def proc_sel(self, columns, **where):
+        qstr = "SELECT %s FROM proc" % columns
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
+            utils.list_intersect([self.PROC_ATTR, where.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        self.cur.execute(qstr)
+        return self.cur.fetchall()
+
+    def proc_sum(self, columns, **where):
+        columns = columns.split(',')
+        columns = ','.join(map(lambda s:"SUM(%s)"%s, columns))
+        qstr = "SELECT %s FROM proc" % columns
+        wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
+            utils.list_intersect([self.PROC_ATTR, where.keys()])))
+        if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
+        print qstr
 
     def proc_cmdline(self, iid, pid, fullcmd=True):
         self.cur.execute("SELECT cmdline FROM proc "
@@ -325,7 +314,7 @@ class Database:
         if fullcmd: return res
         else: return res.split(" ", 1)[0]
 
-    def io_sum_elapsed_and_bytes(self, sysc, iid, pid, fid):
+    def proc_io_sum_elapsed_and_bytes(self, sysc, iid, pid, fid):
         assert sysc == SYSCALL['read'] or sysc == SYSCALL['write']
         self.cur.execute("SELECT SUM(elapsed),SUM(aux1) FROM syscall "
             "WHERE sysc=? and iid=? and pid=? and fid=?",
