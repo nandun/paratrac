@@ -24,11 +24,19 @@
  * FUSE tool for file system calls and processes tracking
  */
 
+#define FUSE_USE_VERSION 26
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #define _GNU_SOURCE
+
+#define FTRAC_TRACE_ENABLED             1
+#define FTRAC_TRACE_SYSC_ENABLED        0
+#define FTRAC_TRACE_PROC_ENABLED        0
+#define FTRAC_TRACE_PROC_TASKSTAT       0
+#define FTRAC_TRACE_PROC_PTRACE         0
 
 #include <fuse.h>
 #include <ulockmgr.h>
@@ -36,6 +44,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <fcntl.h>
 #include <dirent.h>
 #include <errno.h>
@@ -43,8 +52,11 @@
 #include <pwd.h>
 #include <pthread.h>
 #include <sys/time.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <sys/utsname.h>
 #ifdef HAVE_SETXATTR
+#error
 #include <sys/xattr.h>
 #endif
 
@@ -52,17 +64,16 @@
 
 #ifdef linux
 #include <linux/version.h>
+#if FTRAC_TRACE_PROC_TASKSTAT
+#include <linux/genetlink.h>
+#include <linux/taskstats.h>
+#include <linux/cgroupstats.h>
+#endif
 #endif
 
 #if FUSE_VERSION < 23
 #error "FUSE version < 2.3 not supported"
 #endif
-
-#define FTRAC_TRACE_ENABLED             1
-#define FTRAC_TRACE_SYSC_ENABLED        1
-#define FTRAC_TRACE_PROC_ENABLED        1
-#define FTRAC_TRACE_USING_TASKSTAT      1
-#define FTRAC_TRACE_USING_PTRACE        1
 
 #define SYSC_FS_LSTAT          84
 #define SYSC_FS_FSTAT          28
@@ -160,6 +171,12 @@ struct proc_stat {
 #endif
 };
 
+struct netlink_channel {
+	int sock;
+	pthread_t thread;
+	char cpumask[32];
+};
+
 struct hash_table {
 	GHashTable *table;
 	pthread_mutex_t lock;
@@ -221,7 +238,17 @@ struct ftrac {
 	char **environ_vars;
 	int environ_nvars;
 	int cache_timeout;
+
+#if FTRAC_TRACE_PROC_TASKSTAT
+	FILE *taskstat_stream;
+	int ncpus;
+	int familyid;
+	int nlsock;
+	size_t nlbufsize;
+	struct netlink_channel *nlarr;
 #endif
+
+#endif /* FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED */
 	
 	FILE *runtime_stream;
 	FILE *err_stream;
@@ -391,6 +418,7 @@ static long procfs_get_sys_btime(void)
 	return btime;
 }
 
+#if FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED
 static char * procfs_get_environ(pid_t pid)
 {
 	char path[PATH_MAX];
@@ -526,6 +554,27 @@ static void procfs_get_stat(pid_t pid, struct proc_stat *stat)
 		memcpy(stat, &st, sizeof(struct proc_stat));
 }
 
+#if FTRAC_TRACE_PROC_TASKSTAT
+static int procfs_get_cpus_num(void)
+{
+	char buf[FTRAC_MAX_LINE];
+	int id, max_id = 0;
+	FILE *fp = fopen("/proc/stat", "r");
+	
+	while(fgets(buf, FTRAC_MAX_LINE, fp)){
+		if(!strncmp(buf, "cpu", 3) && isdigit(buf[3])){
+			sscanf(buf+3, "%d", &id);
+			if(max_id < id)
+				max_id = id;
+		}
+	}
+	
+	fclose(fp);
+	return max_id + 1;
+}
+#endif
+#endif /* FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED */
+
 /* 
  * System call trace routines
  */
@@ -656,6 +705,12 @@ static inline void file_logging(int index, const char *path)
  * Process trace routiens
  */
 #if FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED
+
+#if FTRAC_TRACE_PROC_TASKSTAT
+static void taskstat_init(void);
+static void taskstat_destroy(void);
+#endif
+
 enum {
 	PROC_LOG_INIT = 0,
 	PROC_LOG_CMDLINE_UPDATED = 1,
@@ -756,23 +811,6 @@ static inline struct proctab_entry * proctab_lookup(pid_t pid)
 		g_hash_table_lookup(ftrac.proctab.table, &pid);
 }
 
-static inline struct proctab_entry * proctab_new_entry(pid_t pid)
-{
-	struct proctab_entry *entry;
-
-	pthread_mutex_lock(&ftrac.proctab.lock);
-	entry = g_hash_table_lookup(ftrac.proctab.table, &pid);
-	if (!entry) {
-		entry = g_malloc(sizeof(struct proctab_entry));
-		pid_t *key = g_malloc(sizeof(pid_t));
-		*key = pid;
-		g_hash_table_insert(ftrac.proctab.table, key, entry);
-		pthread_mutex_init(&entry->lock, NULL);
-	}
-	pthread_mutex_unlock(&ftrac.proctab.lock);
-	return entry;
-}
-
 static void proc_logging_init(void)
 {
 	char file[PATH_MAX];
@@ -795,10 +833,20 @@ static void proc_logging_init(void)
 	}
 
 	proctab_init();
+
+#if FTRAC_TRACE_PROC_TASKSTAT
+	taskstat_init();
+#endif
+	
 }
 
 static void proc_logging_destroy(void)
 {
+
+#if FTRAC_TRACE_PROC_TASKSTAT
+	taskstat_destroy();
+#endif
+
 	proctab_destroy();
 
 	if (ftrac.environ)
@@ -821,7 +869,7 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 		if (proc->n_cmdchk > 0) {
 			char *cmdline = procfs_get_cmdline(pid);
 			if (cmdline && proc->cmdline && strlen(cmdline) > 0 &&
-				strcmp(cmdline, proc->cmdline)) {
+				g_strcmp0(cmdline, proc->cmdline)) {
 				g_free(proc->cmdline);
 				proc->cmdline = cmdline;
 				cmd_updated = 1;
@@ -851,7 +899,23 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 			proc_logging_write(proc, PROC_LOG_ENVIRON_UPDATED);
 
 	} else {
-		proc = proctab_new_entry(pid);
+		pthread_mutex_lock(&ftrac.proctab.lock);
+		proc = proctab_lookup(pid);
+		if (proc) {
+			DEBUG("Other thread already inserted process %d\n", pid);
+			pthread_mutex_unlock(&ftrac.proctab.lock);
+			return;
+		} else {
+			/* Ready to insert new entry */
+			proc = g_malloc(sizeof(struct proctab_entry));
+			pid_t *key = g_malloc(sizeof(pid_t));
+			*key = pid;
+			g_hash_table_insert(ftrac.proctab.table, key, proc);
+		}
+		pthread_mutex_unlock(&ftrac.proctab.lock);
+		
+		/* Only one thread should reach here */
+		pthread_mutex_init(&proc->lock, NULL);
 		proc->environ = procfs_get_environ(pid);
 		proc->n_envchk = proc->environ == NULL ? -1 : 1;
 		proc->cmdline = procfs_get_cmdline(pid);
@@ -865,12 +929,364 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 		proc_logging(sysc, stamp, proc->stat.ppid);
 	}	
 }
+
+#if FTRAC_TRACE_PROC_TASKSTAT
+/*
+ * Generic macros for dealing with netlink sockets. Might be duplicated
+ * elsewhere. It is recommended that commercial grade applications use
+ * libnl or libnetlink and use the interfaces provided by the library
+ */
+#define GENLMSG_DATA(glh)       ((void *)(NLMSG_DATA(glh) + GENL_HDRLEN))
+#define GENLMSG_PAYLOAD(glh)    (NLMSG_PAYLOAD(glh, 0) - GENL_HDRLEN)
+#define NLA_DATA(na)            ((void *)((char*)(na) + NLA_HDRLEN))
+#define NLA_PAYLOAD(len)        (len - NLA_HDRLEN)
+
+#define TASKSTAT_MAX_MSG_SIZE    4096   /* small buffer may lead to msg lost */
+#define TASKSTAT_MAX_CPUS        32
+
+struct msgtemplate {
+	struct nlmsghdr n;
+	struct genlmsghdr g;
+	char buf[TASKSTAT_MAX_MSG_SIZE];
+};
+
+static int taskstat_nl_create(size_t recvbufsize)
+{
+	struct sockaddr_nl local;
+	int fd, res = 0;
+
+	fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
+	if (fd < 0) {
+		fprintf(stderr, "failed to create netlink socket\n");
+		return -1;
+	}
+	
+	if (recvbufsize) {
+		res = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &recvbufsize, 
+			sizeof(recvbufsize));
+		if (res < 0) {
+			fprintf(stderr, "failed to set recieve buffer size "
+					"to %lu\n", recvbufsize);
+			return -1;
+		}
+	}
+
+	memset(&local, 0, sizeof(local));
+	local.nl_family = AF_NETLINK;
+
+	res = bind(fd, (struct sockaddr *) &local, sizeof(local));
+	if (res < 0) {
+		fprintf(stderr, "failed to bind socket\n");
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+int taskstat_nl_send(int sd, __u16 nlmsg_type, __u32 nlmsg_pid,
+	__u8 genl_cmd, __u16 nla_type, void *nla_data, int nla_len)
+{
+	struct nlattr *na;
+	struct sockaddr_nl nladdr;
+	int r, buflen;
+	char *buf;
+
+	struct msgtemplate msg;
+
+	msg.n.nlmsg_len = NLMSG_LENGTH(GENL_HDRLEN);
+	msg.n.nlmsg_type = nlmsg_type;
+	msg.n.nlmsg_flags = NLM_F_REQUEST;
+	msg.n.nlmsg_seq = 0;
+	msg.n.nlmsg_pid = nlmsg_pid;
+	msg.g.cmd = genl_cmd;
+	msg.g.version = 0x1;
+	na = (struct nlattr *) GENLMSG_DATA(&msg);
+	na->nla_type = nla_type;
+	na->nla_len = nla_len + 1 + NLA_HDRLEN;
+	memcpy(NLA_DATA(na), nla_data, nla_len);
+	msg.n.nlmsg_len += NLMSG_ALIGN(na->nla_len);
+
+	buf = (char *) &msg;
+	buflen = msg.n.nlmsg_len ;
+	memset(&nladdr, 0, sizeof(nladdr));
+	nladdr.nl_family = AF_NETLINK;
+	while ((r = sendto(sd, buf, buflen, 0, (struct sockaddr *) &nladdr,
+			   sizeof(nladdr))) < buflen) {
+		if (r > 0) {
+			buf += r;
+			buflen -= r;
+		} else if (errno != EAGAIN)
+			return -1;
+	}
+	return 0;
+}
+
+static int taskstat_get_familyid(int sd)
+{
+	int id = 0, rc;
+	struct nlattr *na;
+	int rep_len;
+	char name[100];
+	
+	struct msgtemplate ans;
+
+	strncpy(name, TASKSTATS_GENL_NAME, 100);
+	rc = taskstat_nl_send(sd, GENL_ID_CTRL, getpid(), CTRL_CMD_GETFAMILY,
+			CTRL_ATTR_FAMILY_NAME, (void *)name,
+			strlen(TASKSTATS_GENL_NAME)+1);
+	
+	rep_len = recv(sd, &ans, sizeof(ans), 0);
+	if (ans.n.nlmsg_type == NLMSG_ERROR ||
+	    (rep_len < 0) || !NLMSG_OK((&ans.n), (unsigned) rep_len))
+		return 0;
+	
+	int dummy;	/* To avoid strict-aliasing warning */
+	memset(&dummy, 0, sizeof(int));
+	na = (struct nlattr *) (GENLMSG_DATA(&ans) + dummy);
+	na = (struct nlattr *) ((char *) na + NLA_ALIGN(na->nla_len));
+	if (na->nla_type == CTRL_ATTR_FAMILY_ID) {
+		id = *(__u16 *) NLA_DATA(na);
+	}
+	return id;
+}
+
+static void taskstat_logging(pid_t tid, struct taskstats *st, int live)
+{
+	struct proctab_entry *proc = proctab_lookup(tid);
+	if (!proc)
+		return;
+	
+	/* Thread exit */
+	if (st->ac_pid == 0 && st->ac_btime == 0) {
+		DEBUG("taskstat: last thread of task group %d exited.\n", tid);
+		return;
+	}
+	
+	/* TAG: file_format */
+	fprintf(ftrac.taskstat_stream, 
+		"%d,%d,%d,%d,%d,%llu,%llu,%llu,%s\n",
+		st->ac_pid, st->ac_ppid, live, st->ac_exitcode, st->ac_btime, 
+		st->ac_etime, st->ac_utime, st->ac_stime, st->ac_comm);
+	
+	if (!live) {
+		/* since process has exited, mark it as dead,
+		 * DO NOT remove dead process from table, it is not safe */
+		pthread_mutex_lock(&proc->lock);
+		proc->live = 0;
+		pthread_mutex_unlock(&proc->lock);
+	}
+}
+
+static int taskstat_nl_recv(int sock, int live)
+{
+	struct msgtemplate msg;
+	struct nlattr *na;
+	int rep_len, res, i;
+	int len, len2, aggr_len, count;
+	pid_t rtid = 0;
+	
+	res = recv(sock, &msg, sizeof(msg), 0);
+	if (res < 0) {
+		fprintf(stderr, "receive error: %d\n", errno);
+		return 0;
+	}
+	if (msg.n.nlmsg_type == NLMSG_ERROR ||
+		!NLMSG_OK((&msg.n), (unsigned) res)) {
+		struct nlmsgerr *error = NLMSG_DATA(&msg);
+		ERROR("warning: receive error: %s\n", strerror(error->error));
+		return 1;
+	}
+	
+	rep_len = GENLMSG_PAYLOAD(&msg.n);
+	na = (struct nlattr *) GENLMSG_DATA(&msg);
+	len = i = 0;
+	while (len < rep_len) {
+		len += NLA_ALIGN(na->nla_len);
+		switch (na->nla_type) {
+			case TASKSTATS_TYPE_AGGR_TGID:
+				/* Fall through */
+			case TASKSTATS_TYPE_AGGR_PID:
+				aggr_len = NLA_PAYLOAD(na->nla_len);
+				len2 = 0;
+				/* For nested attributes, na follows */
+				na = (struct nlattr *) NLA_DATA(na);
+				while (len2 < aggr_len) {
+					switch (na->nla_type) {
+					case TASKSTATS_TYPE_PID:
+						rtid = *(int *) NLA_DATA(na);
+						/* DEBUG("TASKSTATS_TYPE_PID %d\n", rtid); */
+						break;
+					case TASKSTATS_TYPE_TGID:
+						rtid = *(int *) NLA_DATA(na);
+						/* DEBUG("TASKSTATS_TYPE_TGID %d\n", rtid); */
+						break;
+					case TASKSTATS_TYPE_STATS:
+						count++;
+						taskstat_logging(rtid, 
+							(struct taskstats *) NLA_DATA(na), live);
+						break;
+					default:
+						fprintf(stderr, "unknown nested nla_type %d\n",
+							na->nla_type);
+						break;
+					}
+					len2 += NLA_ALIGN(na->nla_len);
+					na = (struct nlattr *) ((char *) na + len2);
+				}
+				break;
+			default:
+				fprintf(stderr, "unknown nla_type %d\n", na->nla_type);
+				break;
+		}
+		na = (struct nlattr *) (GENLMSG_DATA(&msg) + len);
+	}
+	return 0;
+}
+
+static void taskstat_query(void *key, void *value, void *data)
+{
+	int sock, *sockp, res;
+	pid_t *pidp, pid;
+	pidp = (pid_t *) key;
+	pid = *pidp;
+	sockp = (int *) data;
+	sock = *sockp;
+	struct proctab_entry *entry = (struct proctab_entry *) value;
+	
+	if (entry->live) {
+		res = taskstat_nl_send(sock, ftrac.familyid, ftrac.pid,
+			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_PID, &pid, sizeof(__u32));
+		if (res < 0)
+			ERROR("error: netlink send for %d\n", ftrac.pid);
+		
+		res = taskstat_nl_recv(sock, 1);
+	}
+}
+
+static void * taskstat_process(void *data)
+{
+	int err = 0;
+	struct netlink_channel *nl = (struct netlink_channel *) data;
+
+	do {
+		err = taskstat_nl_recv(nl->sock, 0);
+	} while (!err);
+
+	err ? pthread_exit((void *) 1) : pthread_exit((void *) 0);	
+}
+
+static void taskstat_init(void)
+{
+	int res, i;
+	pthread_t thread_id;
+	struct ftrac *ft = &ftrac;
+
+	ft->ncpus = procfs_get_cpus_num();
+
+	/* properly set the number of listeners
+	To avoid losing statistics, userspace should do one or more of the
+	following:
+		- increase the receive buffer sizes for the netlink sockets opened by
+		  listeners to receive exit data.
+		- create more listeners and reduce the number of cpus being 
+		  listened to by each listener. In the extreme case, there could 
+		  be one listener for each cpu. Users may also consider setting 
+		  the cpu affinity of the
+		  listener to the subset of cpus to which it listens, especially if
+		  they are listening to just one cpu. */
+	if (ft->nlsock == 0 || ft->nlsock > ft->ncpus)
+		ft->nlsock = ft->ncpus;
+	
+	DEBUG("taskstat: cpus=%d, nlsocks=%d\n", ft->ncpus, ft->nlsock);
+
+	/* create netlink socket array */
+	ft->nlarr = g_new0(struct netlink_channel, ft->nlsock);
+	for (i = 0; i < ft->nlsock; i++) {
+		ft->nlarr[i].sock = taskstat_nl_create(ft->nlbufsize);
+		if (ft->nlarr[i].sock < 0) {
+			ERROR("error: create the %dth netlink socket\n", i);
+			exit(1);
+		}
+	}
+
+	ft->familyid = taskstat_get_familyid(ft->nlarr[0].sock);
+
+	/* assign cpus to listeners */
+	int q = ft->ncpus / ft->nlsock;
+	int r = ft->ncpus % ft->nlsock;
+	int start = 0, end;
+	for (i = 0; i < ft->nlsock; i++) { /* figure out the assignment */
+		end = start + q; 
+		if (r > 0) { 
+			end += 1; 
+			r -= 1; 
+		} 
+		if (start == end - 1) 
+			snprintf(ft->nlarr[i].cpumask, 32, "%d", start);
+		else 
+			snprintf(ft->nlarr[i].cpumask, 32, "%d-%d", start, end-1);
+		
+		DEBUG("taskstat: cpumask[%d]: %s\n", i, ft->nlarr[i].cpumask);
+		
+		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_REGISTER_CPUMASK, 
+			&ft->nlarr[i].cpumask, strlen(ft->nlarr[i].cpumask) + 1);
+		if (res < 0) {
+			fprintf(stderr, "failed to register cpumask\n");
+			exit(1);
+		}
+		start = end;
+		
+		/* start listening thread */
+		res = pthread_create(&thread_id, NULL, taskstat_process, 
+			(void *) &ft->nlarr[i]);
+		if (res != 0) {
+			fprintf(stderr, "failed to create thread, %s\n", strerror(res));
+			exit(1);
+		}
+		pthread_detach(thread_id);
+		ft->nlarr[i].thread = thread_id;
+	}
+}
+
+static void taskstat_destroy(void)
+{
+	int res, i;
+	struct ftrac *ft = &ftrac;
+	
+	for (i = 0; i < ft->nlsock; i++) {
+		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
+			&(ft->nlarr[i].cpumask), strlen(ft->nlarr[i].cpumask) + 1);
+		if (res < 0)
+			fprintf(stderr, "failed to deregister cpumask\n");
+		close(ft->nlarr[i].sock);
+		
+		res = pthread_cancel(ft->nlarr[i].thread);
+		if (res != 0)
+			fprintf(stderr, "failed to cancel thread[%d]\n", i);
+	}
+
+	g_free(ft->nlarr);
+	
+	/* log all living processes */
+	int sock = taskstat_nl_create(ft->nlbufsize);
+	if (sock < 0) {
+		ERROR("error: create netlink socket with bufsize=%lu\n",
+			ft->nlbufsize);
+		return;
+	}
+	g_hash_table_foreach(ft->proctab.table, taskstat_query, &sock);
+	close(sock);
+}
+#endif /* FTRAC_TRACE_PROC_TASKSTAT */
+
 #endif /* FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED */
 
 /*
  * Runtime logging routines
  */
-static void runtime_logging_init(void)
+static void runtime_init(void)
 {
 	struct passwd *pwd;
 	char file[PATH_MAX];
@@ -976,7 +1392,7 @@ static void runtime_logging_init(void)
 	fflush(ftrac.runtime_stream);
 }
 
-static void runtime_logging_destroy(void)
+static void runtime_destroy(void)
 {
 	struct timespec stamp; 
 	
@@ -1166,7 +1582,6 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	off_t offset, struct fuse_file_info *fi)
 {
 	int res = 0;
-	struct dirent de;
 	struct ftrac_dirp *dirp = (struct ftrac_dirp *) (uintptr_t) fi->fh;
 	struct stat st;
 	off_t nextoff;	
@@ -1188,7 +1603,7 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		TIMING(start);
 #endif
 		if (!dirp->entry) {
-			res = readdir_r(dirp->dp, &de, &dirp->entry);
+			dirp->entry = readdir(dirp->dp);
 			if (!dirp->entry)
 				break;
 		}
@@ -1198,11 +1613,11 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		SYSC_LOGGING;
 		PROC_LOGGING;
 #endif
-		memset(&st, 0, sizeof(st));
-		st.st_ino = de.d_ino;
-		st.st_mode = de.d_type << 12;
+		memset(&st, 0, sizeof(struct stat));
+		st.st_ino = dirp->entry->d_ino;
+		st.st_mode = dirp->entry->d_type << 12;
 		nextoff = telldir(dirp->dp);
-		if (filler(buf, de.d_name, &st, nextoff))
+		if (filler(buf, dirp->entry->d_name, &st, nextoff))
 			break;
 		
 		dirp->entry = NULL;
@@ -1210,9 +1625,9 @@ static int ftrac_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	}
 	
 	if (res != 0)
-		fprintf(stderr, "########readdir return %d, %s\n", res,
-			strerror(res));
-	return res;
+		ERROR("readdir failed: %s\n", strerror(res));
+	
+	return 0;
 }
 
 #undef _SYSC
@@ -1970,7 +2385,7 @@ static void * ftrac_init(void)
 	(void) conn;
 #endif
 	
-	runtime_logging_init();
+	runtime_init();
 
 #if FTRAC_TRACE_ENABLED && FTRAC_TRACE_SYSC_ENABLED
 	sysc_logging_init();
@@ -1979,7 +2394,7 @@ static void * ftrac_init(void)
 #if FTRAC_TRACE_ENABLED && FTRAC_TRACE_PROC_ENABLED
 	proc_logging_init();
 #endif
-	
+
 	return NULL;
 }
 
@@ -1995,7 +2410,7 @@ static void ftrac_destroy(void *data_)
 	proc_logging_destroy();
 #endif
 	
-	runtime_logging_destroy();
+	runtime_destroy();
 }
 
 static struct fuse_operations ftrac_oper = {
@@ -2055,6 +2470,7 @@ enum {
 #define FTRAC_OPT(t, p, v) { t, offsetof(struct ftrac, p), v }
 
 static struct fuse_opt ftrac_opts[] = {
+	FTRAC_OPT("logdir=%s",          logdir, 0),
 	FTRAC_OPT("ftrac_debug",        debug, 1),
 	FTRAC_OPT("dump",               dump, 1),
 
@@ -2082,7 +2498,6 @@ static void usage(const char *progname)
 "    -o opt,[opt...]        mount options\n"
 "    -h   --help            print help\n"
 "    -V   --version         print version\n"
-"    -o sessiondir=PATH     session directory\n"
 "    -o logdir=PATH         log directory\n"
 "    -o logbufsize=PATH     log buffer size\n"
 "    -o notify_pid=PID      process to notify on entering fuse loop\n"
