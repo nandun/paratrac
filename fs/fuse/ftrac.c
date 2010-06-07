@@ -33,9 +33,9 @@
 #define _GNU_SOURCE
 
 #define FTRAC_TRACE_ENABLED             1
-#define FTRAC_TRACE_SYSC_ENABLED        0
-#define FTRAC_TRACE_PROC_ENABLED        0
-#define FTRAC_TRACE_PROC_TASKSTAT       0
+#define FTRAC_TRACE_SYSC_ENABLED        1
+#define FTRAC_TRACE_PROC_ENABLED        1
+#define FTRAC_TRACE_PROC_TASKSTAT       1
 #define FTRAC_TRACE_PROC_PTRACE         0
 
 #include <fuse.h>
@@ -263,9 +263,11 @@ static struct ftrac ftrac;
  * Utilities
  */
 #define ERROR(format, args...) \
-	fprintf(ftrac.err_stream, format, args)
+	fprintf(ftrac.err_stream, "error: "format, args)
+#define WARNING(format, args...) \
+	fprintf(ftrac.err_stream, "warning: "format, args)
 #define DEBUG(format, args...) \
-	if (ftrac.debug) {fprintf(ftrac.err_stream, format, args);}
+	if (ftrac.debug) {fprintf(ftrac.err_stream, "debug: "format, args);}
 
 #define TIMING(time) clock_gettime(CLOCK_REALTIME, &time)
 
@@ -815,7 +817,7 @@ static void proc_logging_init(void)
 {
 	char file[PATH_MAX];
 
-	ftrac.cache_timeout = 6000;
+	ftrac.cache_timeout = 600;
 	
 	assert(ftrac.logdir);
 
@@ -823,7 +825,7 @@ static void proc_logging_init(void)
 	snprintf(file, PATH_MAX, "%s/proc.log", ftrac.logdir);
 	ftrac.proc_stream = fopen(file, "wb");
 	if (ftrac.proc_stream == NULL) {
-		fprintf(stderr, "open file %s failed\n", file);
+		ERROR("open file %s failed\n", file);
 		exit(1);
 	}
 
@@ -1087,13 +1089,13 @@ static int taskstat_nl_recv(int sock, int live)
 	
 	res = recv(sock, &msg, sizeof(msg), 0);
 	if (res < 0) {
-		fprintf(stderr, "receive error: %d\n", errno);
+		ERROR("receive error: %d\n", errno);
 		return 0;
 	}
 	if (msg.n.nlmsg_type == NLMSG_ERROR ||
 		!NLMSG_OK((&msg.n), (unsigned) res)) {
 		struct nlmsgerr *error = NLMSG_DATA(&msg);
-		ERROR("warning: receive error: %s\n", strerror(error->error));
+		ERROR("receive error: %d\n", error->error);
 		return 1;
 	}
 	
@@ -1126,8 +1128,7 @@ static int taskstat_nl_recv(int sock, int live)
 							(struct taskstats *) NLA_DATA(na), live);
 						break;
 					default:
-						fprintf(stderr, "unknown nested nla_type %d\n",
-							na->nla_type);
+						ERROR("unknown nested nla_type %d\n", na->nla_type);
 						break;
 					}
 					len2 += NLA_ALIGN(na->nla_len);
@@ -1135,7 +1136,7 @@ static int taskstat_nl_recv(int sock, int live)
 				}
 				break;
 			default:
-				fprintf(stderr, "unknown nla_type %d\n", na->nla_type);
+				ERROR("unknown nla_type %d\n", na->nla_type);
 				break;
 		}
 		na = (struct nlattr *) (GENLMSG_DATA(&msg) + len);
@@ -1157,7 +1158,7 @@ static void taskstat_query(void *key, void *value, void *data)
 		res = taskstat_nl_send(sock, ftrac.familyid, ftrac.pid,
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_PID, &pid, sizeof(__u32));
 		if (res < 0)
-			ERROR("error: netlink send for %d\n", ftrac.pid);
+			ERROR("netlink send for %d\n", ftrac.pid);
 		
 		res = taskstat_nl_recv(sock, 1);
 	}
@@ -1180,6 +1181,16 @@ static void taskstat_init(void)
 	int res, i;
 	pthread_t thread_id;
 	struct ftrac *ft = &ftrac;
+	char file[PATH_MAX];
+	
+	assert(ftrac.logdir);
+	memset(file, 0, PATH_MAX);
+	snprintf(file, PATH_MAX, "%s/taskstat.log", ftrac.logdir);
+	ftrac.taskstat_stream = fopen(file, "wb");
+	if (ftrac.taskstat_stream == NULL) {
+		ERROR("open file %s failed\n", file);
+		exit(1);
+	}
 
 	ft->ncpus = procfs_get_cpus_num();
 
@@ -1204,7 +1215,7 @@ static void taskstat_init(void)
 	for (i = 0; i < ft->nlsock; i++) {
 		ft->nlarr[i].sock = taskstat_nl_create(ft->nlbufsize);
 		if (ft->nlarr[i].sock < 0) {
-			ERROR("error: create the %dth netlink socket\n", i);
+			ERROR("create the %dth netlink socket\n", i);
 			exit(1);
 		}
 	}
@@ -1232,7 +1243,7 @@ static void taskstat_init(void)
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_REGISTER_CPUMASK, 
 			&ft->nlarr[i].cpumask, strlen(ft->nlarr[i].cpumask) + 1);
 		if (res < 0) {
-			fprintf(stderr, "failed to register cpumask\n");
+			ERROR("register cpumask: %s\n", strerror(errno));
 			exit(1);
 		}
 		start = end;
@@ -1241,7 +1252,7 @@ static void taskstat_init(void)
 		res = pthread_create(&thread_id, NULL, taskstat_process, 
 			(void *) &ft->nlarr[i]);
 		if (res != 0) {
-			fprintf(stderr, "failed to create thread, %s\n", strerror(res));
+			ERROR("failed to create thread, %s\n", strerror(res));
 			exit(1);
 		}
 		pthread_detach(thread_id);
@@ -1259,12 +1270,12 @@ static void taskstat_destroy(void)
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
 			&(ft->nlarr[i].cpumask), strlen(ft->nlarr[i].cpumask) + 1);
 		if (res < 0)
-			fprintf(stderr, "failed to deregister cpumask\n");
+			ERROR("deregister cpumask: %s\n", strerror(errno));
 		close(ft->nlarr[i].sock);
 		
 		res = pthread_cancel(ft->nlarr[i].thread);
 		if (res != 0)
-			fprintf(stderr, "failed to cancel thread[%d]\n", i);
+			ERROR("failed to cancel thread[%d]\n", i);
 	}
 
 	g_free(ft->nlarr);
@@ -1278,6 +1289,8 @@ static void taskstat_destroy(void)
 	}
 	g_hash_table_foreach(ft->proctab.table, taskstat_query, &sock);
 	close(sock);
+
+	fclose(ftrac.taskstat_stream);
 }
 #endif /* FTRAC_TRACE_PROC_TASKSTAT */
 
@@ -1298,7 +1311,7 @@ static void runtime_init(void)
 	ftrac.pid = getpid();
 	ftrac.uid = getuid();
 	if (!(pwd = getpwuid(ftrac.uid))) {
-		fprintf(stderr, "failed to get username for uid %d\n", ftrac.uid);
+		ERROR("failed to get username for uid %d\n", ftrac.uid);
 		exit(1);
 	}
     ftrac.username = g_strdup(pwd->pw_name);
@@ -1311,12 +1324,12 @@ static void runtime_init(void)
 	}
 	ftrac.sys_clk_tck = sysconf(_SC_CLK_TCK);
 	if (ftrac.sys_clk_tck == -1) {
-		fprintf(stderr, "warning: get _SC_CLK_TK: %s\n", strerror(errno));
+		ERROR("get _SC_CLK_TK: %s\n", strerror(errno));
 		ftrac.sys_clk_tck = 100;
 	}
 	ftrac.sys_btime = procfs_get_sys_btime();
 	if (ftrac.sys_btime == -1) {
-		fprintf(stderr, "error: get system btime %s\n", strerror(errno));
+		ERROR("get system btime %s\n", strerror(errno));
 		exit(1);
 	}
 	
@@ -1328,7 +1341,7 @@ static void runtime_init(void)
 		struct stat stbuf;
 		if (realpath(ftrac.logdir, logdir) == NULL &&
 			stat(ftrac.logdir, &stbuf) == 0) {
-			fprintf(stderr, "bad log directory %s\n", logdir);
+			ERROR("bad log directory %s\n", logdir);
 			exit(1);
 		}
 		free(ftrac.logdir);
@@ -1336,8 +1349,7 @@ static void runtime_init(void)
 	}
     res = mkdir(ftrac.logdir, S_IRUSR | S_IWUSR | S_IXUSR);
     if (res == -1 && errno != EEXIST) {
-		fprintf(stderr, "failed to create log directory %s, %s\n", 
-				ftrac.logdir, strerror(errno));
+		ERROR("create directory %s, %s\n", ftrac.logdir, strerror(errno));
 		exit(1);
     }
 	
@@ -1346,7 +1358,7 @@ static void runtime_init(void)
 		snprintf(file, PATH_MAX, "%s/error.log", ftrac.logdir);
 		ftrac.err_stream = fopen(file, "wb");
 		if (ftrac.err_stream == NULL) {
-			fprintf(stderr, "open file %s failed\n", file);
+			ERROR("open file %s: %s\n", file, strerror(errno));
 			exit(1);
 		}
 	}
@@ -1355,7 +1367,7 @@ static void runtime_init(void)
 	snprintf(file, PATH_MAX, "%s/runtime.log", ftrac.logdir);
 	ftrac.runtime_stream = fopen(file, "wb");
 	if (ftrac.runtime_stream == NULL) {
-		ERROR("error: open file %s: %s", file, strerror(errno));
+		ERROR("open file %s: %s", file, strerror(errno));
 		exit(1);
 	}
 	
@@ -1405,8 +1417,7 @@ static void runtime_destroy(void)
 		fclose(ftrac.err_stream);
 
 	TIMING(stamp);
-	fprintf(ftrac.runtime_stream, "end:%.9f", 
-		util_get_timespec(&stamp));
+	fprintf(ftrac.runtime_stream, "end:%.9f", util_get_timespec(&stamp));
 	fclose(ftrac.runtime_stream);
 }
 
