@@ -36,7 +36,11 @@ def import_data(path):
     db = Database("%s/trace.sqlite" % path)
     pgs = Progress("Importing logs from %s ..." % path, " Done!\n")
     pgs.start()
-    db.import_logs()
+    try:
+        db.import_logs()
+    except:
+        pgs.cancel()
+        raise
     pgs.end()
 
 def generate_report(path):
