@@ -22,6 +22,7 @@
 #
 
 import os
+import sys
 
 from modules.utils import SYSCALL
 from modules import utils
@@ -127,7 +128,7 @@ class Database(CommonDatabase):
         f = open("%s/proc.log" % logdir)
         for l in f.readlines():
             flag,pid,ppid,start,stamp,utime,stime,cmd,env \
-                = l.strip().split(",")
+                = l.strip().split("|#|")
             if not flag or eval(pid) in procs: # just ignore start status right now
                 continue
             if not have_taskstat_log:

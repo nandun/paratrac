@@ -436,7 +436,7 @@ static char * procfs_get_environ(pid_t pid)
 	
 	environ = util_get_file(path, &length, 1);
 	if (environ == NULL) {
-		fprintf(stderr, "failed to get environ of file %s\n", path);
+		ERROR("get environ of file %s\n", path);
 		return NULL;
 	}
 		
@@ -458,13 +458,15 @@ static char * procfs_get_environ(pid_t pid)
 				len++;
 				j++;
 				if (len >= FTRAC_MAX_LINE)
-					new_environ = g_realloc(new_environ, len + FTRAC_MAX_LINE);
+					new_environ = 
+						g_realloc(new_environ, len + FTRAC_MAX_LINE);
 			}
 			if (j > 0) {	/* only output when env exist */
 				new_environ[len] = ' ';
 				len++;
 				if (len >= FTRAC_MAX_LINE)
-					new_environ = g_realloc(new_environ, len + FTRAC_MAX_LINE);
+					new_environ = 
+						g_realloc(new_environ, len + FTRAC_MAX_LINE);
 			}
 		}
 		new_environ[len] = '\0';
@@ -485,7 +487,7 @@ static void procfs_get_stat(pid_t pid, struct proc_stat *stat)
 	
 	FILE *fp = fopen(path, "rb");
 	if (fp == NULL) {
-		ERROR("error: open file %s failed: %s\n", path, strerror(errno));
+		ERROR("open file %s: %s\n", path, strerror(errno));
 		return;
 	}
 
@@ -551,7 +553,7 @@ static void procfs_get_stat(pid_t pid, struct proc_stat *stat)
 	fclose(fp);
 	
 	if (res == EOF) 
-		ERROR("error: parsing file %s\n", path);
+		ERROR("parsing file %s\n", path);
 	else
 		memcpy(stat, &st, sizeof(struct proc_stat));
 }
@@ -629,7 +631,7 @@ static void sysc_logging_init(void)
 	snprintf(file, PATH_MAX, "%s/sysc.log", ftrac.logdir);
 	ftrac.sysc_stream = fopen(file, "wb");
 	if (ftrac.sysc_stream == NULL) {
-		fprintf(stderr, "open file %s failed\n", file);
+		ERROR("open file %s: %s\n", file, strerror(errno));
 		exit(1);
 	}
 
@@ -639,7 +641,7 @@ static void sysc_logging_init(void)
 	snprintf(file, PATH_MAX, "%s/file.log", ftrac.logdir);
 	ftrac.file_stream = fopen(file, "wb");
 	if (ftrac.file_stream == NULL) {
-		fprintf(stderr, "open file %s failed\n", file);
+		ERROR("open file %s: %s\n", file, strerror(errno));
 		exit(1);
 	}
 
@@ -795,7 +797,7 @@ static void proctab_init(void)
 	err = pthread_create(&ftrac.proctab.thread, NULL,
 		proctab_cleanup, NULL);
 	if (err) {
-		ERROR("error: failed to create thread: %s\n", strerror(err));
+		ERROR("create thread: %s\n", strerror(err));
 		exit(1);
 	}
 }
@@ -959,7 +961,7 @@ static int taskstat_nl_create(size_t recvbufsize)
 
 	fd = socket(AF_NETLINK, SOCK_RAW, NETLINK_GENERIC);
 	if (fd < 0) {
-		fprintf(stderr, "failed to create netlink socket\n");
+		ERROR("create netlink socket: %s\n", strerror(errno));
 		return -1;
 	}
 	
@@ -967,8 +969,8 @@ static int taskstat_nl_create(size_t recvbufsize)
 		res = setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &recvbufsize, 
 			sizeof(recvbufsize));
 		if (res < 0) {
-			fprintf(stderr, "failed to set recieve buffer size "
-					"to %lu\n", recvbufsize);
+			ERROR("set recieve buffer size %lu: %s\n", recvbufsize,
+				strerror(errno));
 			return -1;
 		}
 	}
@@ -978,7 +980,7 @@ static int taskstat_nl_create(size_t recvbufsize)
 
 	res = bind(fd, (struct sockaddr *) &local, sizeof(local));
 	if (res < 0) {
-		fprintf(stderr, "failed to bind socket\n");
+		ERROR("bind socket: %s\n", strerror(errno));
 		close(fd);
 		return -1;
 	}
@@ -1180,7 +1182,6 @@ static void taskstat_init(void)
 {
 	int res, i;
 	pthread_t thread_id;
-	struct ftrac *ft = &ftrac;
 	char file[PATH_MAX];
 	
 	assert(ftrac.logdir);
@@ -1192,7 +1193,7 @@ static void taskstat_init(void)
 		exit(1);
 	}
 
-	ft->ncpus = procfs_get_cpus_num();
+	ftrac.ncpus = procfs_get_cpus_num();
 
 	/* properly set the number of listeners
 	To avoid losing statistics, userspace should do one or more of the
@@ -1205,43 +1206,43 @@ static void taskstat_init(void)
 		  the cpu affinity of the
 		  listener to the subset of cpus to which it listens, especially if
 		  they are listening to just one cpu. */
-	if (ft->nlsock == 0 || ft->nlsock > ft->ncpus)
-		ft->nlsock = ft->ncpus;
+	if (ftrac.nlsock == 0 || ftrac.nlsock > ftrac.ncpus)
+		ftrac.nlsock = ftrac.ncpus;
 	
-	DEBUG("taskstat: cpus=%d, nlsocks=%d\n", ft->ncpus, ft->nlsock);
+	DEBUG("taskstat: cpus=%d, nlsocks=%d\n", ftrac.ncpus, ftrac.nlsock);
 
 	/* create netlink socket array */
-	ft->nlarr = g_new0(struct netlink_channel, ft->nlsock);
-	for (i = 0; i < ft->nlsock; i++) {
-		ft->nlarr[i].sock = taskstat_nl_create(ft->nlbufsize);
-		if (ft->nlarr[i].sock < 0) {
+	ftrac.nlarr = g_new0(struct netlink_channel, ftrac.nlsock);
+	for (i = 0; i < ftrac.nlsock; i++) {
+		ftrac.nlarr[i].sock = taskstat_nl_create(ftrac.nlbufsize);
+		if (ftrac.nlarr[i].sock < 0) {
 			ERROR("create the %dth netlink socket\n", i);
 			exit(1);
 		}
 	}
 
-	ft->familyid = taskstat_get_familyid(ft->nlarr[0].sock);
+	ftrac.familyid = taskstat_get_familyid(ftrac.nlarr[0].sock);
 
 	/* assign cpus to listeners */
-	int q = ft->ncpus / ft->nlsock;
-	int r = ft->ncpus % ft->nlsock;
+	int q = ftrac.ncpus / ftrac.nlsock;
+	int r = ftrac.ncpus % ftrac.nlsock;
 	int start = 0, end;
-	for (i = 0; i < ft->nlsock; i++) { /* figure out the assignment */
+	for (i = 0; i < ftrac.nlsock; i++) { /* figure out the assignment */
 		end = start + q; 
 		if (r > 0) { 
 			end += 1; 
 			r -= 1; 
 		} 
 		if (start == end - 1) 
-			snprintf(ft->nlarr[i].cpumask, 32, "%d", start);
+			snprintf(ftrac.nlarr[i].cpumask, 32, "%d", start);
 		else 
-			snprintf(ft->nlarr[i].cpumask, 32, "%d-%d", start, end-1);
+			snprintf(ftrac.nlarr[i].cpumask, 32, "%d-%d", start, end-1);
 		
-		DEBUG("taskstat: cpumask[%d]: %s\n", i, ft->nlarr[i].cpumask);
+		DEBUG("taskstat: cpumask[%d]: %s\n", i, ftrac.nlarr[i].cpumask);
 		
-		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+		res = taskstat_nl_send(ftrac.nlarr[i].sock, ftrac.familyid, ftrac.pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_REGISTER_CPUMASK, 
-			&ft->nlarr[i].cpumask, strlen(ft->nlarr[i].cpumask) + 1);
+			&ftrac.nlarr[i].cpumask, strlen(ftrac.nlarr[i].cpumask) + 1);
 		if (res < 0) {
 			ERROR("register cpumask: %s\n", strerror(errno));
 			exit(1);
@@ -1250,44 +1251,43 @@ static void taskstat_init(void)
 		
 		/* start listening thread */
 		res = pthread_create(&thread_id, NULL, taskstat_process, 
-			(void *) &ft->nlarr[i]);
+			(void *) &ftrac.nlarr[i]);
 		if (res != 0) {
 			ERROR("failed to create thread, %s\n", strerror(res));
 			exit(1);
 		}
 		pthread_detach(thread_id);
-		ft->nlarr[i].thread = thread_id;
+		ftrac.nlarr[i].thread = thread_id;
 	}
 }
 
 static void taskstat_destroy(void)
 {
 	int res, i;
-	struct ftrac *ft = &ftrac;
 	
-	for (i = 0; i < ft->nlsock; i++) {
-		res = taskstat_nl_send(ft->nlarr[i].sock, ft->familyid, ft->pid, 
+	for (i = 0; i < ftrac.nlsock; i++) {
+		res = taskstat_nl_send(ftrac.nlarr[i].sock, ftrac.familyid, ftrac.pid, 
 			TASKSTATS_CMD_GET, TASKSTATS_CMD_ATTR_DEREGISTER_CPUMASK, 
-			&(ft->nlarr[i].cpumask), strlen(ft->nlarr[i].cpumask) + 1);
+			&(ftrac.nlarr[i].cpumask), strlen(ftrac.nlarr[i].cpumask) + 1);
 		if (res < 0)
 			ERROR("deregister cpumask: %s\n", strerror(errno));
-		close(ft->nlarr[i].sock);
+		close(ftrac.nlarr[i].sock);
 		
-		res = pthread_cancel(ft->nlarr[i].thread);
+		res = pthread_cancel(ftrac.nlarr[i].thread);
 		if (res != 0)
 			ERROR("failed to cancel thread[%d]\n", i);
 	}
 
-	g_free(ft->nlarr);
+	g_free(ftrac.nlarr);
 	
 	/* log all living processes */
-	int sock = taskstat_nl_create(ft->nlbufsize);
+	int sock = taskstat_nl_create(ftrac.nlbufsize);
 	if (sock < 0) {
-		ERROR("error: create netlink socket with bufsize=%lu\n",
-			ft->nlbufsize);
+		ERROR("create netlink socket with bufsize=%lu: %s\n",
+			ftrac.nlbufsize, strerror(errno));
 		return;
 	}
-	g_hash_table_foreach(ft->proctab.table, taskstat_query, &sock);
+	g_hash_table_foreach(ftrac.proctab.table, taskstat_query, &sock);
 	close(sock);
 
 	fclose(ftrac.taskstat_stream);
@@ -1304,7 +1304,7 @@ static void runtime_init(void)
 	struct passwd *pwd;
 	char file[PATH_MAX];
 	int res;
-
+    
 	srand(time(NULL) + getpid());
 	
 	TIMING(ftrac.itime);
@@ -1316,7 +1316,6 @@ static void runtime_init(void)
 	}
     ftrac.username = g_strdup(pwd->pw_name);
 	ftrac.gid = pwd->pw_gid;
-	ftrac.cwd = g_get_current_dir();
 	ftrac.cmdline = procfs_get_cmdline(ftrac.pid);
 	if (uname(&ftrac.platform) == -1) {
 		ERROR("warning: failed to get platform info: %s\n", 
@@ -1402,6 +1401,7 @@ static void runtime_init(void)
 		util_get_timespec(&ftrac.itime)
 		);
 	fflush(ftrac.runtime_stream);
+	
 }
 
 static void runtime_destroy(void)
@@ -2633,6 +2633,7 @@ int main(int argc, char * argv[])
         g_thread_init(NULL);
 
 	ftrac.progname = argv[0];
+	ftrac.cwd = g_get_current_dir();
 	ftrac.err_stream = stderr;
 	
 	if (fuse_opt_parse(&args, &ftrac, ftrac_opts, ftrac_opt_proc) == -1) {
@@ -2662,7 +2663,7 @@ int main(int argc, char * argv[])
 #if FUSE_VERSION >= 27
 	libver = fuse_version();
 	assert(libver >= 27);
-	/* remove commas from fsname, 
+	/* Remove commas from fsname, 
 	   because it many confuse fuse option parser */
 	if (libver >= 28)
 		fsname = fsname_escape_commas(fsname);
@@ -2673,8 +2674,9 @@ int main(int argc, char * argv[])
 	optstr = g_strdup_printf("-ofsname=fstrac#%s", fsname);
 #endif
 	fuse_opt_insert_arg(&args, 1, optstr);
-	
+
 	res = ftrac_fuse_main(&args);
+
 	fuse_opt_free_args(&args);
 	g_free(fsname);
 	g_free(optstr);
