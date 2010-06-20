@@ -29,6 +29,10 @@ def stdout_flush(s):
     sys.stdout.write(s)
     sys.stdout.flush()
 
+def stderr_flush(s):
+    sys.stderr.write(s)
+    sys.stderr.flush()
+
 class Progress:
     class Tick(threading.Thread):
         def __init__(self, stop, delay, func):
@@ -59,7 +63,9 @@ class Progress:
         self.stop.clear()
         self.tmr.start()
     
-    def cancel(self):
+    def cancel(self, msg=None):
+        if msg is not None:
+            stderr_flush(msg)
         self.stop.set()
 
     def end(self, msg=None):

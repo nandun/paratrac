@@ -61,4 +61,3 @@ class Database:
         self.con.close()
         self.con = None
 
-

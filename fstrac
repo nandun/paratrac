@@ -27,12 +27,9 @@ import os
 import sys
 
 from modules.verbose import Progress
-from fs.opts import Options
-from fs.data import Database
-from fs.plot import Plot
-from fs.report import Report
 
 def import_data(path):
+    from fs.data import Database
     db = Database("%s/trace.sqlite" % path)
     pgs = Progress("Importing logs from %s ..." % path, " Done!\n")
     pgs.start()
@@ -48,11 +45,18 @@ def generate_report(path):
     if not os.path.exists(dbpath): import_data(path)
     pgs = Progress("Generating report to %s ..." % path, " Done!\n")
     pgs.start()
-    r = Report(dbpath)
-    r.html()
+    try:
+        from fs.report import HTMLReport
+        r = HTMLReport(dbpath)
+        r.write()
+    except:
+        pgs.cancel()
+        raise
+
     pgs.end()
 
 def plotting(path, plist):
+    from fs.plot import Plot
     dbpath = "%s/trace.sqlite" % path
     if not os.path.exists(dbpath): import_data(path)
     pgs = Progress()
@@ -67,16 +71,19 @@ def plotting(path, plist):
     pgs.end("\nDone!\n")
 
 def main(argv):
+    from fs.opts import Options
     opt = Options(argv)
     
     if opt.opts.import_dir:
         import_data(opt.opts.import_dir)
     
-    if opt.opts.plot:
-        plotting(opt.opts.path, opt.opts.plot)
+#    if opt.opts.plot:
+#        plotting(opt.opts.path, opt.opts.plot)
 
-#    if opt.opts.report_dir:
-#        generate_report(opt.opts.report_dir)
+    if opt.opts.report_dir:
+        generate_report(opt.opts.report_dir)
+
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

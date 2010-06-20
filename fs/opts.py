@@ -35,7 +35,7 @@ class Options(CommonOptions):
             sys.stdout.write(
 """\
 Available plot types:
-    
+    Under development, not available yet
 """)
             sys.exit(0)
 

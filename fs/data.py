@@ -26,6 +26,7 @@ import sys
 
 from modules.utils import SYSCALL
 from modules import utils
+from modules import num 
 from modules.data import Database as CommonDatabase
 
 class Database(CommonDatabase):
@@ -86,6 +87,7 @@ class Database(CommonDatabase):
         f.close()
         
         # import process logs according to the accuracy of information
+        procs = set()
         CLK_TCK = runtime['clktck']
         SYS_BTIME = runtime['sysbtime']
         have_taskstat_log = False
@@ -103,27 +105,29 @@ class Database(CommonDatabase):
                     (iid,pid,ppid,live,res,btime,elapsed,utime,stime))
             f.close()
             have_taskstat_log = True
-
-        procs = set()
-        f = open("%s/ptrace.log" % logdir)
-        for l in f.readlines():
-            pid,ppid,start,stamp,utime,stime,cmd,env \
-                = l.strip().split(",")
-            if not have_taskstat_log:
-                # calculate real btime and elapsed
-                btime = SYS_BTIME + float(start) / CLK_TCK
-                elapsed = float(stamp) - btime
-                utime = float(utime) / CLK_TCK
-                stime = float(stime) / CLK_TCK
-                self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
-                    "btime,elapsed,utime,stime,cmdline,environ) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
-            else:
-                self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
-                    "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
-            procs.add(eval(pid))
-        f.close()
+        
+        have_ptrace_log = False
+        if os.path.exists("%s/ptrace.log" % logdir):
+            f = open("%s/ptrace.log" % logdir)
+            for l in f.readlines():
+                pid,ppid,start,stamp,utime,stime,cmd,env \
+                    = l.strip().split(",")
+                if not have_taskstat_log:
+                    # calculate real btime and elapsed
+                    btime = SYS_BTIME + float(start) / CLK_TCK
+                    elapsed = float(stamp) - btime
+                    utime = float(utime) / CLK_TCK
+                    stime = float(stime) / CLK_TCK
+                    self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
+                        "btime,elapsed,utime,stime,cmdline,environ) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
+                else:
+                    self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
+                        "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
+                procs.add(eval(pid))
+            f.close()
+            have_ptrace_log = True
 
         f = open("%s/proc.log" % logdir)
         for l in f.readlines():
@@ -140,6 +144,7 @@ class Database(CommonDatabase):
                     "btime,elapsed,utime,stime,cmdline,environ) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
                     (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
+            # TODO: integrating ptrace log
             else:
                 self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
                     "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
@@ -158,13 +163,31 @@ class Database(CommonDatabase):
         if res is None: return None
         else: return res[0]
 
+    def runtime_values(self):
+        self.cur.execute('SELECT item,value FROM runtime')
+        return self.cur.fetchall()
+
     # syscall table routines
     def sysc_sel(self, sysc, fields="*"):
-        self.cur.execute("SELECT %s FROM syscall WHERE sysc=?" 
+        self.cur.execute("SELECT %s FROM sysc WHERE sysc=?" 
             % fields, (sysc,))
         return self.cur.fetchall()
     
-    def sysc_sum(self, columns, **where):
+    def sysc_count(self, sysc):
+        self.cur.execute("SELECT COUNT(*) FROM sysc WHERE sysc=?", (sysc,))
+        return self.cur.fetchone()[0]
+    
+    def sysc_sum(self, sysc, field):
+        cur = self.con.cursor()
+        cur.execute("SELECT SUM(%s) FROM sysc WHERE sysc=?"
+        "GROUP BY sysc" % field, (sysc,))
+        res = cur.fetchone()
+        if res is None: # No such system call
+            return 0
+        else:
+            return res[0]
+    
+    def sysc_sum2(self, columns, **where):
         columns = columns.split(',')
         columns = ','.join(map(lambda s:"SUM(%s)"%s, columns))
         qstr = "SELECT %s FROM sysc" % columns
@@ -173,25 +196,10 @@ class Database(CommonDatabase):
         if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
         self.cur.execute(qstr)
         return self.cur.fetchall()
-
-    
-    def sysc_count(self, sysc):
-        self.cur.execute("SELECT COUNT(*) FROM syscall WHERE sysc=?", (sysc,))
-        return self.cur.fetchone()[0]
-    
-    def sysc_sum2(self, sysc, field):
-        cur = self.db.cursor()
-        cur.execute("SELECT SUM(%s) FROM syscall WHERE sysc=?"
-        "GROUP BY sysc" % field, (sysc,))
-        res = cur.fetchone()
-        if res is None: # No such system call
-            return 0
-        else:
-            return res[0]
     
     def sysc_avg(self, sysc, field):
-        cur = self.db.cursor()
-        cur.execute("SELECT AVG(%s) FROM syscall WHERE sysc=?"
+        cur = self.con.cursor()
+        cur.execute("SELECT AVG(%s) FROM sysc WHERE sysc=?"
         "GROUP BY sysc" % field, (sysc,))
         res = cur.fetchone()
         if res is None: # No such system call
@@ -200,10 +208,10 @@ class Database(CommonDatabase):
             return res[0]
     
     def sysc_stddev(self, sysc, field):
-        cur = self.db.cursor()
-        cur.execute("SELECT %s FROM syscall WHERE sysc=?" % field, (sysc,))
+        cur = self.con.cursor()
+        cur.execute("SELECT %s FROM sysc WHERE sysc=?" % field, (sysc,))
         vlist = map(lambda x:x[0], cur.fetchall())
-        return numpy.std(vlist)
+        return num.num_std(vlist)
     
     def sysc_cdf(self, sysc, field, numbins=None):
         """if numbins is None, use all data"""

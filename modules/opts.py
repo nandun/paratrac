@@ -55,17 +55,17 @@ class Options:
     def _add_default_options(self):
         self.optParser.add_option("-i", "--import", action="callback",
             type="string", dest="import_dir", metavar="PATH", default=None,
-            callback=self._check_path, help="import raw logs to database")
+            callback=self._check_path, help="import trace logs to database")
         
         self.optParser.add_option("-r", "--report", action="callback",
             type="string", dest="report_dir", metavar="PATH", default=None,
             callback=self._check_path, 
-            help="generate report for given data")
-        
+            help="generate report")
+       
         self.optParser.add_option("-p", "--plot", action="callback",
             type="string", dest="plot", metavar="TYPE", default=[],
             callback=self._check_plot, 
-            help="plot given type of figures, see '-p help' for details")
+            help="plot figures, see '-p help' for details")
         
         self.optParser.add_option("-v", "--verbosity", action="store",
             type="int", dest="verbosity", metavar="NUM", default=None,
@@ -79,6 +79,9 @@ class Options:
 
     def parse_argv(self, argv):
         self.prog = os.path.basename(argv[0])
+        if len(argv) == 1:
+            self.optParser.print_help()
+            sys.exit(0)
         opts, self.args = self.optParser.parse_args(argv)
         self.opts.update(opts.__dict__)
         self._check_opts_and_args()
