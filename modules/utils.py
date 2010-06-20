@@ -92,6 +92,9 @@ if sys.platform == "win32":
 else:
     timer = time.time
 
+def timer2():
+    return time.localtime(), timer()
+
 def parse_datasize(size):
     size = size.upper()
     if size.isdigit():

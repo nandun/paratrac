@@ -25,6 +25,7 @@ import sys
 import os
 import time
 
+import version
 import modules.utils as utils
 import modules.DHTML as DHTML
 import data
@@ -36,9 +37,9 @@ FUSETRAC_SYSCALL = ["lstat", "fstat", "access", "readlink", "opendir",
     "open", "statfs", "flush", "close", "fsync", "read", "write"]
 
 class Report():
-    def __init__(self, dbfile):
-        self.datadir = os.path.dirname(dbfile)
-        self.db = data.Database(dbfile, False)
+    def __init__(self, dbpath):
+        self.datadir = os.path.dirname(dbpath)
+        self.db = data.Database(dbpath)
         self.plot = plot.Plot(self.datadir)
         
         # report root dir
@@ -65,9 +66,174 @@ class Report():
 
     def __del__(self):
         self.db.close()
+    
+    def runtime_stats(self):
+        runtime = {}
+        for k, v in self.db.runtime_values():
+            runtime[k] = v
+        return runtime
 
-    def html(self):
-        print "html"
+    def sysc_stats(self, plot=False):
+        syscalls = FUSETRAC_SYSCALL
+        stats = []
+        total_cnt = 0
+        total_elapsed = 0.0
+        unit_str = self.unit["latency"][0]
+        unit_scale = self.unit["latency"][1]
+        
+        cdff = None
+        distf = None
+        for sc in syscalls:
+            sc_num = utils.SYSCALL[sc]
+            cnt = self.db.sysc_count(sc_num)
+            if cnt == 0: continue
+            elapsed_sum = self.db.sysc_sum(sc_num,"elapsed")
+            elapsed_avg = self.db.sysc_avg(sc_num,"elapsed") * unit_scale
+            elapsed_stddev = \
+                self.db.sysc_stddev(sc_num, "elapsed") * unit_scale
+            total_cnt += cnt
+            total_elapsed += elapsed_sum
+
+            if plot: pass
+
+            if plot: pass
+            
+            stats.append((sc, cnt, elapsed_sum, elapsed_avg, elapsed_stddev,
+                distf, cdff))
+
+        return stats, total_cnt, total_elapsed
+
+    def io_stats(self, plot=False):
+        syscalls = ["read", "write"]
+        stats = []
+        total_bytes = 0
+        
+        sz_cum_fig = None
+        len_dist_fig = None
+        len_cdf_fig = None
+        off_dist_cfg = None
+        off_cdf_cfg = None
+        for sc in syscalls:
+            sc_num = utils.SYSCALL[sc]
+            bytes = self.db.sysc_sum(sc_num, "aux1")
+            if bytes == 0: continue # ignore operation not executed
+            len_avg = self.db.sysc_avg(sc_num, "aux1")
+            len_std = self.db.sysc_stddev(sc_num, "aux1")
+            off_avg = self.db.sysc_avg(sc_num, "aux2")
+            off_std = self.db.sysc_stddev(sc_num, "aux2")
+            total_bytes += bytes
+
+            stats.append((sc, bytes, len_avg, len_std, 
+                off_avg, off_std, sz_cum_fig, len_dist_fig, len_cdf_fig,
+                off_dist_cfg, off_cdf_cfg))
+
+        return stats, total_bytes
+
+class HTMLReport(Report):
+    def __init__(self, dbpath):
+        Report.__init__(self, dbpath)
+        
+        # html constants
+        self.INDEX_FILE = "index.html"
+        self.NAVI_FILE = "navi.html"
+        self.MAIN_FILE = "main.html"
+        self.CSS_FILE = "style.css"
+        self.TITLE = "ParaTrac Profiling Report"
+        self.TITLE_SIZE = 1
+        self.SECTION_SIZE = self.TITLE_SIZE + 1
+        self.SUBSECTION_SIZE = self.SECTION_SIZE + 1
+        self.SIDEBAR_SIZE = 20
+        self.LINK_ATTRS = {"rel":"stylesheet", "type":"text/css", 
+            "href":"%s" % self.CSS_FILE}
+    
+    def write(self):
+        self.start = utils.timer2()
+        
+        self.css_file()
+        self.main_page()
+
+    def main_page(self):
+        doc = DHTML.HTMLDocument()
+
+        # head
+        head = doc.makeHead(title=self.TITLE)
+        head.appendChild(doc.tag("link", attrs=self.LINK_ATTRS))
+        doc.add(head)
+        
+        # body
+        body = doc.tag("body")
+        doc.add(body)
+        
+        body.appendChild(doc.H(self.TITLE_SIZE, value=self.TITLE))
+        
+        # runtime summary
+        body.appendChild(doc.H(self.SECTION_SIZE, "Runtime Summary"))
+        runtime = self.runtime_stats()
+        rows = []
+        rows.append(["ParaTrac", "v%s" % runtime["version"]])
+        rows.append(["Platform", "%s" % runtime["platform"]])
+        rows.append(["Mountpoint", "%s" % runtime["mountpoint"]])
+        rows.append(
+            ["Elapsed", "%s --- %s (%.2f seconds)" 
+            % ((time.strftime("%a %b %d %Y %H:%M:%S %Z",
+               time.localtime(eval(runtime["start"])))),
+              (time.strftime("%a %b %d %Y %H:%M:%S %Z",
+               time.localtime(eval(runtime["end"])))),
+              (eval(runtime["end"]) - eval(runtime["start"])))])
+        rows.append(["User","%s (%s)" % (runtime["user"], runtime["uid"])])
+        rows.append(["Command", "%s" % runtime["cmdline"]])
+        rows.append(["Data", doc.HREF("trace.sqlite", "../trace.sqlite")])
+        body.appendChild(doc.table([], rows))
+        
+        # system call statistics
+        body.appendChild(doc.H(self.SECTION_SIZE, "System Call Statistics"))
+        rows = []
+        stats, total_cnt, total_elapsed = self.sysc_stats()
+        for sc, cnt, e_sum, e_avg, e_stddev, distf, cdff in stats:
+            rows.append([sc, cnt, float(cnt)/total_cnt,
+                e_sum, e_sum/total_elapsed, e_avg, e_stddev, distf, cdff])
+        body.appendChild(doc.table([("Syscall", "Sum", "Ratio", "Sum",
+            "Ratio", "Avg", "Std", "Dist", "CDF")], rows))
+
+        notes = doc.tag("p", value="*System calls not invoked are ignored.",
+            attrs={"class":"notes"})
+        body.appendChild(notes)
+       
+        # io statistics
+        body.appendChild(doc.H(self.SECTION_SIZE, "I/O Statistics"))
+        rows = []
+        stats, total_bytes = self.io_stats()
+        for sc, byts, len_avg, len_std, off_avg, off_std, \
+            sz_cum_fig, len_dist_fig, len_cdf_fig, \
+            off_dist_fig, off_cdf_fig in stats:
+            rows.append([sc, byts, float(byts)/total_bytes,
+                sz_cum_fig, len_avg, len_std, len_dist_fig,
+                len_cdf_fig, off_avg, off_std, 
+                off_dist_fig, off_cdf_fig])
+        body.appendChild(doc.table([("Syscall", "Sum", "Ratio", "CUM",
+            "Avg", "StdDev", "Dist", "CDF", 
+            "Avg", "StdDev", "Dist", "CDF")], rows))
+
+        # footnote
+        self.end = utils.timer2()
+        pNode = doc.tag("p", 
+            value="Generated at %s, took %.2f seconds by "
+            % (time.strftime("%a %b %d %Y %H:%M:%S %Z", self.end[0]),
+              (self.end[1] - self.start[1])),
+            attrs={"class":"footnote"})
+        pNode.appendChild(doc.HREF("ParaTrac", version.PARATRAC_WEB))
+        pNode.appendChild(doc.TEXT(" (v%s, build %s)." 
+            % (version.PARATRAC_VERSION, version.PARATRAC_DATE)))
+        body.appendChild(pNode)
+        
+        htmlFile = open("%s/%s" % (self.rdir, self.MAIN_FILE), "w")
+        doc.write(htmlFile)
+        htmlFile.close()
+    
+    def css_file(self):
+        cssFile = open("%s/%s" % (self.rdir, self.CSS_FILE), "w")
+        cssFile.write(PARATRAC_DEFAULT_CSS_STYLE_STRING)
+        cssFile.close()
     
     #
     # HTML report
@@ -587,4 +753,76 @@ latency='msec'
 # plot tools, 'gnuplot'
 plot = 'gnuplot'
 imgtype = 'png'
+"""
+
+# Be careful about browser compatibility!
+# CSS selector:
+#   IE: NODE.class
+#   Firefox: NODE[class=value]
+PARATRAC_DEFAULT_CSS_STYLE_STRING = """\
+H1 {
+font-family: Arial;
+}
+
+H2 {
+font-family: Arial;
+background-color: #C3FDB8;
+}
+
+P[class=footnote] {
+font-family: Times New Roman;
+font-size: 12pt;
+font-style: italic;
+display: block;
+background-color: #C3FDB8;
+}
+
+P[class=notes] {
+font-family: Times New Roman;
+font-size: 12pt;
+font-style: italic;
+}
+
+IMG[class=thumbnail] {
+border-style: outset;
+border-width: 1px;
+width: 20px;
+height: 20px;
+}
+
+IMG[class=demo] {
+display: block;
+margin-left: auto;
+margin-right: auto;
+width: 800px;
+height: 600px;
+vertical-align: middle;
+border-style: outset;
+border-width: 0px;
+}
+
+TABLE {
+font-family: "Lucida Sans Unicode", "Lucida Grande", Sans-Serif;
+font-size: 16px;
+border-collapse: collapse;
+text-align: left;
+width: 100%;
+}
+
+TH {
+font-size: 14px;
+font-weight: bold;
+padding: 6px 8px;
+border-bottom: 2px solid;
+}
+
+TD {
+padding: 2px 2px;
+}
+
+UL[class=navi] {
+font-family: "Lucida Sans Unicode", "Lucida Grande", Sans-Serif;
+font-size: 14px;
+cursor: pointer;
+}
 """
