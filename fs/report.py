@@ -81,8 +81,8 @@ class Report():
         unit_str = self.unit["latency"][0]
         unit_scale = self.unit["latency"][1]
         
-        cdff = None
-        distf = None
+        cdff = "N/A"
+        distf = "N/A"
         for sc in syscalls:
             sc_num = utils.SYSCALL[sc]
             cnt = self.db.sysc_count(sc_num)
@@ -93,8 +93,17 @@ class Report():
                 self.db.sysc_std(sc_num, "elapsed") * unit_scale
             total_cnt += cnt
             total_elapsed += elapsed_sum
-
-            if plot: pass
+            
+            """
+            if plot:
+                distf = self.plot.points_chart(
+                    data=map(lambda (x,y):(x,y*unit_scale), 
+                        self.db.sysc_sel(sc_num, "stamp,elapsed")),
+                    prefix="%s/dist-%s" % (self.fdir, sc),
+                    title="Distribution of Latency of %s" % sc,
+                    xlabel="Tracing Time (seconds)",
+                    ylabel="Latency (%s)" % unit_str)
+            """
 
             if plot: pass
             
@@ -201,7 +210,7 @@ class HTMLReport(Report):
         # system call statistics
         body.appendChild(doc.H(self.SECTION_SIZE, "System Call Statistics"))
         rows = []
-        stats, total_cnt, total_elapsed = self.sysc_stats()
+        stats, total_cnt, total_elapsed = self.sysc_stats(True)
         for sc, cnt, e_sum, e_avg, e_stddev, distf, cdff in stats:
             rows.append([sc, cnt, float(cnt)/total_cnt,
                 e_sum, e_sum/total_elapsed, e_avg, e_stddev, distf, cdff])
@@ -245,9 +254,12 @@ class HTMLReport(Report):
         g = self.plot.workflow("%s/%s" % (self.fdir, "workflow.%s" % "png"))
         n_files, n_procs = g.nodes_count()
         d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg = g.degree_stat()
-        rows.append([n_files+n_procs, n_files, n_procs, 
-            self.fig_href(doc, "workflow.png")])
-        body.appendChild(doc.table([("Total", "Procs", "Files", "DAG")],
+        figref = doc.HREF(doc.IMG("figures/workflow.png", 
+            attrs={"class":"thumbnail"}), "figures/workflow.png")
+        rows.append([n_files+n_procs, n_procs, n_files, figref,
+            d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg])
+        body.appendChild(doc.table([("Total", "Procs", "Files", "DAG",
+            "Degree:Avg", "Centrality", "Betweeness", "Closeness")],
             rows))
         
         # footnote
