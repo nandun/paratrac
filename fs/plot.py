@@ -649,7 +649,7 @@ ellipse:hover {stroke-width:10; stork:red}
             elif type == 'p':
                 try:
                     pid, cmd = self.db.proc_sel("pid,cmdline", pid=id)[0]
-                    n.setAttribute("hint", "%s" % smart_cmdline(cmd, 2))
+                    n.setAttribute("hint", "%s" % utils.smart_cmdline(cmd, 2))
                 except IndexError:
                     pass
 
@@ -669,7 +669,7 @@ ellipse:hover {stroke-width:10; stork:red}
             aHead = pathNode.nextSibling.nextSibling
             if edge_data.has_key("fork"):
                 btime, elapsed = edge_data["fork"]
-                e_v, e_u = smart_usec(elapsed)
+                e_v, e_u = utils.smart_usec(elapsed)
                 hint_str = "%s#%.2f%s" % (btime, e_v, e_u)
                 aHead.setAttribute("fork", "1")
             else:
@@ -682,8 +682,8 @@ ellipse:hover {stroke-width:10; stork:red}
                 if edge_data.has_key("creat"):
                     hint_str = "creat"
                 else:
-                    s_v, s_u = smart_datasize(s)
-                    th_v, th_u = smart_datasize(s/t)
+                    s_v, s_u = utils.smart_datasize(s)
+                    th_v, th_u = utils.smart_datasize(s/t)
                     hint_str = "%.2f%s@%.2f%s/sec" % (s_v,s_u,th_v,th_u)
                 coords = aHead.getAttribute("points")
                 x, y = coords.split(" ")[0].split(",")
