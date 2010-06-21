@@ -28,6 +28,7 @@ import os
 import warnings
 import xml.dom.minidom as minidom
 
+import Gnuplot
 import numpy as np
 import matplotlib
 matplotlib.use("Cairo")
@@ -49,6 +50,9 @@ class Plot:
         self.ptree = None
         self.COLORS = ["blue", "yellow", "red", "green"]
         self.N_COLORS = len(self.COLORS)
+        
+        self.c = Gnuplot.Gnuplot()
+        self.terminal = "png"
 
     def _stacked_lines(self, path, x, yseries):
         pyplot.clf()
@@ -157,6 +161,30 @@ class Plot:
         g = WorkflowDAG(self.db)
         g.draw(path)
         return g
+    
+    def points_chart(self, data, prefix="points_chart", title="points_chart",
+        xlabel="x label", ylabel="y label"):
+        self.c.reset()
+        self.c.title(title)
+        self.c.xlabel(xlabel)
+        self.c.ylabel(ylabel)
+        self.c("set terminal %s" % self.terminal)
+        self.c("set output '%s.%s'" % (prefix, self.terminal))
+        self.c("set data style points")
+        self.c.plot(data)
+        return "%s.%s" % (prefix, self.terminal)
+    
+    def lines_chart(self, data, prefix="lines_chart", title="lines_chart",
+        xlabel="x label", ylabel="y label"):
+        self.c.reset()
+        self.c.title(title)
+        self.c.xlabel(xlabel)
+        self.c.ylabel(ylabel)
+        self.c("set terminal %s" % self.terminal)
+        self.c("set output '%s.%s'" % (prefix, self.terminal))
+        self.c("set data style linespoints")
+        self.c.plot(data)
+        return "%s.%s" % (prefix, self.terminal)
 
 class ProcTree:
     def __init__(self):

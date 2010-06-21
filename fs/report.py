@@ -94,7 +94,6 @@ class Report():
             total_cnt += cnt
             total_elapsed += elapsed_sum
             
-            """
             if plot:
                 distf = self.plot.points_chart(
                     data=map(lambda (x,y):(x,y*unit_scale), 
@@ -103,9 +102,15 @@ class Report():
                     title="Distribution of Latency of %s" % sc,
                     xlabel="Tracing Time (seconds)",
                     ylabel="Latency (%s)" % unit_str)
-            """
 
-            if plot: pass
+            if plot:
+                cdff = self.plot.lines_chart(
+                    data=map(lambda (x,y):(x*unit_scale,y), 
+                        self.db.sysc_cdf(sc_num, "elapsed")),
+                    prefix="%s/cdf-%s" % (self.fdir, sc),
+                    title="Cumulative Distribution of Latency of %s" % sc,
+                    xlabel="Latency (%s)" % unit_str,
+                    ylabel="Percent")
             
             stats.append((sc, cnt, elapsed_sum, elapsed_avg, elapsed_stddev,
                 distf, cdff))
@@ -131,6 +136,49 @@ class Report():
             off_avg = self.db.sysc_avg(sc_num, "aux2")
             off_std = self.db.sysc_std(sc_num, "aux2")
             total_bytes += bytes
+
+            if plot:
+                sz_cum_data = []
+                sz_sum = 0
+                for s, sz in self.db.sysc_sel(sc_num, "stamp,aux1"):
+                    sz_sum += sz
+                    sz_cum_data.append((s,sz_sum))
+                
+                sz_cum_fig = self.plot.lines_chart(
+                    data=sz_cum_data,
+                    prefix="%s/cum-%s" % (self.fdir, sc),
+                    title="Summation of Request Size of %s" % sc,
+                    xlabel="Time (seconds)",
+                    ylabel="Total Data Size (bytes)")
+
+                len_dist_fig = self.plot.points_chart(
+                    data=self.db.sysc_sel(sc_num, "stamp,aux1"),
+                    prefix="%s/len-dist-%s" % (self.fdir, sc),
+                    title="Distribution of Length of %s" % sc,
+                    xlabel="Time Stamp (seconds)",
+                    ylabel="Request Length (bytes)")
+                
+                len_cdf_fig = self.plot.lines_chart(
+                    data=self.db.sysc_cdf(sc_num, "aux1"),
+                    prefix="%s/len-cdf-%s" % (self.fdir, sc),
+                    title="CDF of Length of %s" % sc,
+                    xlabel="Request Length (bytes)",
+                    ylabel="Ratio")
+                
+                off_dist_cfg = self.plot.points_chart(
+                    data=self.db.sysc_sel(sc_num, "stamp,aux2"),
+                    prefix="%s/offset-dist-%s" % (self.fdir, sc),
+                    title="Distribution of Request Offset of %s" % sc,
+                    xlabel="Time Stamp (seconds)",
+                    ylabel="Request Offset (bytes)")
+
+                off_cdf_cfg = self.plot.lines_chart(
+                    data=self.db.sysc_cdf(sc_num, "aux2"),
+                    prefix="%s/offset-cdf-%s" % (self.fdir, sc),
+                    title="CDF of Offset of %s" % sc,
+                    xlabel="Request Offset (bytes)",
+                    ylabel="Ratio")
+                
 
             stats.append((sc, bytes, len_avg, len_std, 
                 off_avg, off_std, sz_cum_fig, len_dist_fig, len_cdf_fig,
@@ -212,8 +260,14 @@ class HTMLReport(Report):
         rows = []
         stats, total_cnt, total_elapsed = self.sysc_stats(True)
         for sc, cnt, e_sum, e_avg, e_stddev, distf, cdff in stats:
+            base = os.path.basename(distf)
+            distfref = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
+            base = os.path.basename(cdff)
+            cdffref = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
             rows.append([sc, cnt, float(cnt)/total_cnt,
-                e_sum, e_sum/total_elapsed, e_avg, e_stddev, distf, cdff])
+                e_sum, e_sum/total_elapsed, e_avg, e_stddev, distfref, cdffref])
         body.appendChild(doc.table([
             ("Syscall", "Count:Sum", "Ratio", "Latency:Sum",
             "Ratio", "Avg", "Std", "Dist", "CDF")], rows))
@@ -225,10 +279,25 @@ class HTMLReport(Report):
         # io statistics
         body.appendChild(doc.H(self.SECTION_SIZE, "I/O Statistics"))
         rows = []
-        stats, total_bytes = self.io_stats()
+        stats, total_bytes = self.io_stats(True)
         for sc, byts, len_avg, len_std, off_avg, off_std, \
             sz_cum_fig, len_dist_fig, len_cdf_fig, \
             off_dist_fig, off_cdf_fig in stats:
+            base = os.path.basename(sz_cum_fig)
+            sz_cum_fig = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
+            base = os.path.basename(len_dist_fig)
+            len_dist_fig = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
+            base = os.path.basename(len_cdf_fig)
+            len_cdf_fig = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
+            base = os.path.basename(off_dist_fig)
+            off_dist_fig = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
+            base = os.path.basename(off_cdf_fig)
+            off_cdf_fig = doc.HREF(doc.IMG("figures/%s" % base, 
+                attrs={"class":"thumbnail"}), "figures/%s" % base)
             rows.append([sc, byts, float(byts)/total_bytes,
                 sz_cum_fig, len_avg, len_std, len_dist_fig,
                 len_cdf_fig, off_avg, off_std, 
