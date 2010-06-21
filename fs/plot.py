@@ -37,6 +37,7 @@ import networkx as nx
 
 from modules.utils import SYSCALL
 from modules import utils
+from modules import num
 from data import Database
 
 class Plot:
@@ -151,6 +152,11 @@ class Plot:
     def plot(self, plist=[]):
         if "procs_stats" in plist:
             self.plot_procs_stats()
+    
+    def workflow(self, path):
+        g = WorkflowDAG(self.db)
+        g.draw(path)
+        return g
 
 class ProcTree:
     def __init__(self):
@@ -378,9 +384,8 @@ class ProcTreeDAG:
         return self.g.number_of_edges()
 
 class WorkflowDAG:
-    def __init__(self, datadir):
-        self.datadir = os.path.abspath(datadir)
-        self.db = data.Database("%s/fstrace.db" % self.datadir, False)
+    def __init__(self, dbhandler):
+        self.db = dbhandler
         self.g = DiGraph()
         # Graph parameters
         # ref: http://networkx.lanl.gov/reference/generated/networkx.draw.html
@@ -415,7 +420,7 @@ class WorkflowDAG:
             procs_write = map(lambda x:x[0],
                 self.db.sysc_sel_procs_by_file(iid, SC_WRITE, fid, "pid"))
             
-            labels["f%d" % fid] = smart_filename(path)
+            labels["f%d" % fid] = utils.smart_filename(path)
             # generate I/O relationships
             
             # TODO:WAIT
@@ -440,7 +445,7 @@ class WorkflowDAG:
             # generate process parent-child relaships
             plist = self.db.proc_sel("pid,ppid,cmdline")
             for pid,ppid,cmd in plist:
-                labels["p%d" % pid] = smart_cmdline(cmd, 0)
+                labels["p%d" % pid] = utils.smart_cmdline(cmd, 0)
                 if pid == 1: continue
                 self.g.add_edge("p%d" % ppid, "p%d" % pid, 
                     fork=self.db.proc_sel("btime,elapsed", pid=pid)[0])
@@ -738,10 +743,10 @@ ellipse:hover {stroke-width:10; stork:red}
         return n_files, n_procs
 
     def degree_stat(self):
-        avg = numpy.mean(map(lambda (n,d):d, self.g.degree_iter()))
-        Cd_avg = numpy.mean(nx.degree_centrality(self.g).values())
-        Cb_avg = numpy.mean(nx.betweenness_centrality(self.g).values())
-        Cc_avg = numpy.mean(nx.closeness_centrality(self.g).values())
+        avg = num.avg(map(lambda (n,d):d, self.g.degree_iter()))
+        Cd_avg = num.avg(nx.degree_centrality(self.g).values())
+        Cb_avg = num.avg(nx.betweenness_centrality(self.g).values())
+        Cc_avg = num.avg(nx.closeness_centrality(self.g).values())
         return avg, Cd_avg, Cb_avg, Cc_avg
     
     def causal_order(self):

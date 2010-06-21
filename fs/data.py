@@ -207,7 +207,7 @@ class Database(CommonDatabase):
         else:
             return res[0]
     
-    def sysc_stddev(self, sysc, field):
+    def sysc_std(self, sysc, field):
         cur = self.con.cursor()
         cur.execute("SELECT %s FROM sysc WHERE sysc=?" % field, (sysc,))
         vlist = map(lambda x:x[0], cur.fetchall())
@@ -230,7 +230,7 @@ class Database(CommonDatabase):
         return data
 
     def sysc_sel_procs_by_file(self, iid, sysc, fid, fields="*"):
-        self.cur.execute("SELECT %s FROM syscall WHERE "
+        self.cur.execute("SELECT %s FROM sysc WHERE "
             "iid=? AND sysc=? AND fid=? GROUP BY pid" % fields, 
             (iid, sysc, fid))
         return self.cur.fetchall()
@@ -239,7 +239,7 @@ class Database(CommonDatabase):
     def file_sel(self, columns, **where):
         qstr = "SELECT %s FROM file" % columns
         wstr = " and ".join(map(lambda k:"%s=%s" % (k, where[k]),
-            list_intersect([self.FILE_ATTR, where.keys()])))
+            utils.list_intersect([self.FILE_ATTR, where.keys()])))
         if wstr != "": qstr = "%s WHERE %s" % (qstr, wstr)
         self.cur.execute(qstr)
         return self.cur.fetchall()
@@ -307,7 +307,28 @@ class Database(CommonDatabase):
         self.cur.execute(qstr)
         return self.cur.fetchall()
 
-    def proc_sum(self, columns, **where):
+    def proc_sum(self, field):
+        self.cur.execute("SELECT SUM(%s) FROM proc" % field)
+        res = self.cur.fetchone()
+        if res is None: # No such system call
+            return 0
+        else:
+            return res[0]
+    
+    def proc_avg(self, field):
+        self.cur.execute("SELECT AVG(%s) FROM proc" % field)
+        res = self.cur.fetchone()
+        if res is None: # No such system call
+            return 0
+        else:
+            return res[0]
+    
+    def proc_std(self, field):
+        self.cur.execute("SELECT %s FROM proc" % field)
+        vlist = map(lambda x:x[0], self.cur.fetchall())
+        return num.num_std(vlist)
+
+    def proc_sum2(self, columns, **where):
         columns = columns.split(',')
         columns = ','.join(map(lambda s:"SUM(%s)"%s, columns))
         qstr = "SELECT %s FROM proc" % columns
@@ -373,7 +394,7 @@ class Database(CommonDatabase):
 
     def proc_throughput(self, iid, pid, fid, sysc):
         if sysc == "read" or sysc == "write":
-            self.cur.execute("SELECT SUM(elapsed),SUM(aux1) FROM syscall"
+            self.cur.execute("SELECT SUM(elapsed),SUM(aux1) FROM sysc"
                 " WHERE iid=? and pid=? and fid=? and sysc=? GROUP BY pid", 
                 (iid, pid, fid, SYSCALL[sysc]))
         else:
