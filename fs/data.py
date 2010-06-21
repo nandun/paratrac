@@ -80,8 +80,11 @@ class Database(CommonDatabase):
         f.close()
         
         f = open("%s/sysc.log" % logdir)
+        btime = None
         for l in f.readlines():
             stamp,pid,sysc,fid,res,elapsed,aux1,aux2 = l.strip().split(",")
+            if not btime: btime = float(stamp)
+            stamp = "%f" % (float(stamp) - btime)
             self.cur.execute("INSERT INTO sysc VALUES (?,?,?,?,?,?,?,?,?)",
                 (iid,stamp,pid,sysc,fid,res,elapsed,aux1,aux2))
         f.close()
@@ -215,7 +218,7 @@ class Database(CommonDatabase):
     
     def sysc_cdf(self, sysc, field, numbins=None):
         """if numbins is None, use all data"""
-        self.cur.execute("SELECT %s FROM syscall WHERE sysc=?" 
+        self.cur.execute("SELECT %s FROM sysc WHERE sysc=?" 
             % field, (sysc,))
         vlist = map(lambda x:x[0], self.cur.fetchall())
         vlist.sort()
@@ -326,6 +329,7 @@ class Database(CommonDatabase):
     def proc_std(self, field):
         self.cur.execute("SELECT %s FROM proc" % field)
         vlist = map(lambda x:x[0], self.cur.fetchall())
+        if len(vlist) == 0: return 0
         return num.num_std(vlist)
 
     def proc_sum2(self, columns, **where):
