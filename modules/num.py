@@ -31,11 +31,11 @@ try:
 except ImportError:
     HAVE_NUMPY = False
 
-def num_average(alist):
+def num_avg(alist):
     return sum(alist)/len(alist)
 
 def num_std(alist):
-    avg = num_average(alist)
+    avg = num_avg(alist)
     total = 0.0
     for x in alist:
         total += math.pow((x-avg), 2)
@@ -43,13 +43,13 @@ def num_std(alist):
 
 if HAVE_NUMPY:
     sum = numpy.sum
-    average = numpy.average
+    avg = numpy.average
     min = numpy.min
     max = numpy.max
     std = numpy.std
 else:
     sum = __builtin__.sum
-    average = num_average
+    avg = num_avg
     min = __builtin__.min
     max = __builtin__.max
     std = num_std

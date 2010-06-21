@@ -90,7 +90,7 @@ class Report():
             elapsed_sum = self.db.sysc_sum(sc_num,"elapsed")
             elapsed_avg = self.db.sysc_avg(sc_num,"elapsed") * unit_scale
             elapsed_stddev = \
-                self.db.sysc_stddev(sc_num, "elapsed") * unit_scale
+                self.db.sysc_std(sc_num, "elapsed") * unit_scale
             total_cnt += cnt
             total_elapsed += elapsed_sum
 
@@ -118,9 +118,9 @@ class Report():
             bytes = self.db.sysc_sum(sc_num, "aux1")
             if bytes == 0: continue # ignore operation not executed
             len_avg = self.db.sysc_avg(sc_num, "aux1")
-            len_std = self.db.sysc_stddev(sc_num, "aux1")
+            len_std = self.db.sysc_std(sc_num, "aux1")
             off_avg = self.db.sysc_avg(sc_num, "aux2")
-            off_std = self.db.sysc_stddev(sc_num, "aux2")
+            off_std = self.db.sysc_std(sc_num, "aux2")
             total_bytes += bytes
 
             stats.append((sc, bytes, len_avg, len_std, 
@@ -129,6 +129,19 @@ class Report():
 
         return stats, total_bytes
 
+    def proc_stats(self):
+        stats = []
+        stats.append((
+            self.db.proc_sum("elapsed"), self.db.proc_avg("elapsed"),
+            self.db.proc_std("elapsed"),
+            self.db.proc_sum("utime"), self.db.proc_avg("utime"),
+            self.db.proc_std("utime"),
+            self.db.proc_sum("stime"), self.db.proc_avg("stime"),
+            self.db.proc_std("stime")
+            ))
+        
+        return stats
+
 class HTMLReport(Report):
     def __init__(self, dbpath):
         Report.__init__(self, dbpath)
@@ -136,7 +149,7 @@ class HTMLReport(Report):
         # html constants
         self.INDEX_FILE = "index.html"
         self.NAVI_FILE = "navi.html"
-        self.MAIN_FILE = "main.html"
+        self.MAIN_FILE = "index.html"
         self.CSS_FILE = "style.css"
         self.TITLE = "ParaTrac Profiling Report"
         self.TITLE_SIZE = 1
@@ -192,7 +205,8 @@ class HTMLReport(Report):
         for sc, cnt, e_sum, e_avg, e_stddev, distf, cdff in stats:
             rows.append([sc, cnt, float(cnt)/total_cnt,
                 e_sum, e_sum/total_elapsed, e_avg, e_stddev, distf, cdff])
-        body.appendChild(doc.table([("Syscall", "Sum", "Ratio", "Sum",
+        body.appendChild(doc.table([
+            ("Syscall", "Count:Sum", "Ratio", "Latency:Sum",
             "Ratio", "Avg", "Std", "Dist", "CDF")], rows))
 
         notes = doc.tag("p", value="*System calls not invoked are ignored.",
@@ -210,10 +224,32 @@ class HTMLReport(Report):
                 sz_cum_fig, len_avg, len_std, len_dist_fig,
                 len_cdf_fig, off_avg, off_std, 
                 off_dist_fig, off_cdf_fig])
-        body.appendChild(doc.table([("Syscall", "Sum", "Ratio", "CUM",
-            "Avg", "StdDev", "Dist", "CDF", 
-            "Avg", "StdDev", "Dist", "CDF")], rows))
+        body.appendChild(doc.table([("Syscall", "Bytes:Sum", "Ratio", "CUM",
+            "Length:Avg", "Std", "Dist", "CDF", 
+            "Offset:Avg", "StdDev", "Dist", "CDF")], rows))
 
+        # process statistics
+        body.appendChild(doc.H(self.SECTION_SIZE, "Process Statistics"))
+        rows = []
+        for e_sum, e_avg, e_std, ut_sum, ut_avg, ut_std, \
+            st_sum, st_avg, st_std in self.proc_stats():
+            rows.append(["All", e_sum, e_avg, e_std, 
+                ut_sum, ut_avg, ut_std, st_sum, st_avg, st_std])
+        body.appendChild(doc.table([("Proc", "Elapsed:Sum", "Avg", "Std",
+            "utime:Sum", "Avg", "Std", "stime:Sum", "Avg", "Std")],
+            rows))
+        
+        # workflow
+        body.appendChild(doc.H(self.SECTION_SIZE, "Workflow Statistics"))
+        rows = []
+        g = self.plot.workflow("%s/%s" % (self.fdir, "workflow.%s" % "png"))
+        n_files, n_procs = g.nodes_count()
+        d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg = g.degree_stat()
+        rows.append([n_files+n_procs, n_files, n_procs, 
+            self.fig_href(doc, "workflow.png")])
+        body.appendChild(doc.table([("Total", "Procs", "Files", "DAG")],
+            rows))
+        
         # footnote
         self.end = utils.timer2()
         pNode = doc.tag("p", 
@@ -235,6 +271,11 @@ class HTMLReport(Report):
         cssFile.write(PARATRAC_DEFAULT_CSS_STYLE_STRING)
         cssFile.close()
     
+    def fig_href(self, doc, filename, figsdir="figures"):
+        basename = os.path.basename(filename)
+        return doc.HREF("%s" % basename.split(".")[-1].upper(),
+            "%s/%s" % (figsdir, basename))
+
     #
     # HTML report
     #
@@ -338,7 +379,7 @@ class HTMLReport(Report):
             elapsed_sum = self.db.sysc_sum(sc_num,"elapsed")
             elapsed_avg = self.db.sysc_avg(sc_num,"elapsed") * unit_scale
             elapsed_stddev = \
-                self.db.sysc_stddev(sc_num, "elapsed") * unit_scale
+                self.db.sysc_std(sc_num, "elapsed") * unit_scale
             total_cnt += cnt
             total_elapsed += elapsed_sum
             
@@ -401,9 +442,9 @@ class HTMLReport(Report):
             bytes = self.db.sysc_sum(sc_num, "aux1")
             if bytes == 0: continue # ignore operation not executed
             len_avg = self.db.sysc_avg(sc_num, "aux1")
-            len_stddev = self.db.sysc_stddev(sc_num, "aux1")
+            len_stddev = self.db.sysc_std(sc_num, "aux1")
             off_avg = self.db.sysc_avg(sc_num, "aux2")
-            off_stddev = self.db.sysc_stddev(sc_num, "aux2")
+            off_stddev = self.db.sysc_std(sc_num, "aux2")
             total_bytes += bytes
 
             # plot
@@ -719,7 +760,7 @@ def html_fighref(filename, figsdir="figures"):
     """return an HTML href suffix string link to the target figure
     file"""
     basename = os.path.basename(filename)
-    return HTMLgen.Href("%s/%s" % (figsdir, basename),
+    return DHTML.Href("%s/%s" % (figsdir, basename),
         "%s" % basename.split(".")[-1].upper())
 
 def html_tabhref(filename, text="HTML", tabsdir="tables"):
@@ -803,7 +844,7 @@ border-width: 0px;
 
 TABLE {
 font-family: "Lucida Sans Unicode", "Lucida Grande", Sans-Serif;
-font-size: 16px;
+font-size: 14px;
 border-collapse: collapse;
 text-align: left;
 width: 100%;
