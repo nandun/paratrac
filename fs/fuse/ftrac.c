@@ -1303,7 +1303,7 @@ static void runtime_init(void)
 {
 	struct passwd *pwd;
 	char file[PATH_MAX];
-	int res;
+//	int res;
     
 	srand(time(NULL) + getpid());
 	
@@ -1331,26 +1331,6 @@ static void runtime_init(void)
 		ERROR("get system btime %s\n", strerror(errno));
 		exit(1);
 	}
-	
-	if (!ftrac.logdir) {
-		ftrac.logdir = g_strdup_printf("%s/ftrac-%s-%u", ftrac.cwd, 
-			ftrac.username, util_str_hash(ftrac.mntpoint));
-	} else {
-		char logdir[PATH_MAX];
-		struct stat stbuf;
-		if (realpath(ftrac.logdir, logdir) == NULL &&
-			stat(ftrac.logdir, &stbuf) == 0) {
-			ERROR("bad log directory %s\n", logdir);
-			exit(1);
-		}
-		free(ftrac.logdir);
-		ftrac.logdir = g_strdup(logdir);
-	}
-    res = mkdir(ftrac.logdir, S_IRUSR | S_IWUSR | S_IXUSR);
-    if (res == -1 && errno != EEXIST) {
-		ERROR("create directory %s, %s\n", ftrac.logdir, strerror(errno));
-		exit(1);
-    }
 	
 	if (!ftrac.foreground || ftrac.dump) {
 		memset(file, 0, PATH_MAX);
@@ -2658,6 +2638,27 @@ int main(int argc, char * argv[])
 	/* Insert mount point argument back,
 	   mount point is already absolute path here */
 	fuse_opt_insert_arg(&args, 1, ftrac.mntpoint);
+	
+	if (!ftrac.logdir) {
+		ftrac.logdir = g_strdup_printf("%s/ftrac-%s-%u", ftrac.cwd, 
+			ftrac.username, util_str_hash(ftrac.mntpoint));
+	} else {
+		char logdir[PATH_MAX];
+		struct stat stbuf;
+		if (realpath(ftrac.logdir, logdir) == NULL &&
+			stat(ftrac.logdir, &stbuf) == 0) {
+			ERROR("bad log directory %s\n", logdir);
+			exit(1);
+		}
+		free(ftrac.logdir);
+		ftrac.logdir = g_strdup(logdir);
+	}
+    res = mkdir(ftrac.logdir, S_IRUSR | S_IWUSR | S_IXUSR);
+    if (res == -1 && errno != EEXIST) {
+		ERROR("create directory %s, %s\n", ftrac.logdir, strerror(errno));
+		exit(1);
+    }
+	
 	
 	fsname = g_strdup_printf("ftrac-%d", util_str_hash(ftrac.mntpoint));
 #if FUSE_VERSION >= 27
