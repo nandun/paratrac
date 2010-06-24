@@ -64,6 +64,10 @@
 
 #ifdef linux
 #include <linux/version.h>
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
+#undef FTRAC_TRACE_PROC_TASKSTAT
+#define FTRAC_TRACE_PROC_TASKSTAT 0
+#endif
 #if FTRAC_TRACE_PROC_TASKSTAT
 #include <linux/genetlink.h>
 #include <linux/taskstats.h>
@@ -2456,7 +2460,9 @@ static struct fuse_operations ftrac_oper = {
 #endif
 	.lock			= ftrac_lock,
 
+#if FUSE_VERSION >= 28
 	.flag_nullpath_ok = 1,
+#endif
 };
 
 /* 
