@@ -145,7 +145,7 @@ class Database(CommonDatabase):
                 stime = float(stime) / CLK_TCK
                 self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
                     "btime,elapsed,utime,stime,cmdline,environ) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
             # TODO: integrating ptrace log
             else:
