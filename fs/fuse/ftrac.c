@@ -877,7 +877,11 @@ static void proc_logging(int sysc, struct timespec *stamp, pid_t pid)
 		if (proc->n_cmdchk > 0) {
 			char *cmdline = procfs_get_cmdline(pid);
 			if (cmdline && proc->cmdline && strlen(cmdline) > 0 &&
+#if GLIB_CHECK_VERSION(2,16,0)
 				g_strcmp0(cmdline, proc->cmdline)) {
+#else
+				strcmp(cmdline, proc->cmdline)) {
+#endif
 				g_free(proc->cmdline);
 				proc->cmdline = cmdline;
 				cmd_updated = 1;
