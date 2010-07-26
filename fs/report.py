@@ -266,8 +266,10 @@ class HTMLReport(Report):
             base = os.path.basename(cdff)
             cdffref = doc.HREF(doc.IMG("figures/%s" % base, 
                 attrs={"class":"thumbnail"}), "figures/%s" % base)
-            rows.append([sc, cnt, float(cnt)/total_cnt,
-                e_sum, e_sum/total_elapsed, e_avg, e_stddev, distfref, cdffref])
+            rows.append([sc, cnt, round(float(cnt)/total_cnt, 5),
+                round(e_sum, 5), round(e_sum/total_elapsed, 5), 
+                round(e_avg, 5), round(e_stddev, 5), 
+                distfref, cdffref])
         body.appendChild(doc.table([
             ("Syscall", "Count:Sum", "Ratio", "Latency:Sum",
             "Ratio", "Avg", "Std", "Dist", "CDF")], rows))
@@ -298,9 +300,9 @@ class HTMLReport(Report):
             base = os.path.basename(off_cdf_fig)
             off_cdf_fig = doc.HREF(doc.IMG("figures/%s" % base, 
                 attrs={"class":"thumbnail"}), "figures/%s" % base)
-            rows.append([sc, byts, float(byts)/total_bytes,
-                sz_cum_fig, len_avg, len_std, len_dist_fig,
-                len_cdf_fig, off_avg, off_std, 
+            rows.append([sc, byts, round(float(byts)/total_bytes, 5),
+                sz_cum_fig, round(len_avg, 5), round(len_std, 5), len_dist_fig,
+                len_cdf_fig, round(off_avg, 5), round(off_std, 5), 
                 off_dist_fig, off_cdf_fig])
         body.appendChild(doc.table([("Syscall", "Bytes:Sum", "Ratio", "CUM",
             "Length:Avg", "Std", "Dist", "CDF", 
@@ -311,8 +313,10 @@ class HTMLReport(Report):
         rows = []
         for e_sum, e_avg, e_std, ut_sum, ut_avg, ut_std, \
             st_sum, st_avg, st_std in self.proc_stats():
-            rows.append(["All", e_sum, e_avg, e_std, 
-                ut_sum, ut_avg, ut_std, st_sum, st_avg, st_std])
+            rows.append(["All", 
+                round(e_sum, 5), round(e_avg, 5), round(e_std, 5), 
+                round(ut_sum, 5), round(ut_avg, 5), round(ut_std, 5), 
+                round(st_sum, 5), round(st_avg, 5), round(st_std, 5)])
         body.appendChild(doc.table([("Proc", "Elapsed:Sum", "Avg", "Std",
             "utime:Sum", "Avg", "Std", "stime:Sum", "Avg", "Std")],
             rows))
@@ -326,7 +330,8 @@ class HTMLReport(Report):
         figref = doc.HREF(doc.IMG("figures/workflow.png", 
             attrs={"class":"thumbnail"}), "figures/workflow.png")
         rows.append([n_files+n_procs, n_procs, n_files, figref,
-            d_avg, d_Cd_avg, d_Cb_avg, d_Cc_avg])
+            round(d_avg, 5), 
+            round(d_Cd_avg, 5), round(d_Cb_avg, 5), round(d_Cc_avg, 5)])
         body.appendChild(doc.table([("Total", "Procs", "Files", "DAG",
             "Degree:Avg", "Centrality", "Betweeness", "Closeness")],
             rows))
