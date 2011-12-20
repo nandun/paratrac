@@ -132,26 +132,27 @@ class Database(CommonDatabase):
             f.close()
             have_ptrace_log = True
 
-        f = open("%s/proc.log" % logdir)
-        for l in f.readlines():
-            flag,pid,ppid,start,stamp,utime,stime,cmd,env \
-                = l.strip().split("|#|")
-            if not flag or eval(pid) in procs: # just ignore start status right now
-                continue
-            if not have_taskstat_log:
-                btime = SYS_BTIME + float(start) / CLK_TCK
-                elapsed = float(stamp) - btime
-                utime = float(utime) / CLK_TCK
-                stime = float(stime) / CLK_TCK
-                self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
-                    "btime,elapsed,utime,stime,cmdline,environ) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
-            # TODO: integrating ptrace log
-            else:
-                self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
-                    "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
-                 
+        if os.path.exists("%s/proc.log" % logdir):
+            f = open("%s/proc.log" % logdir)
+            for l in f.readlines():
+                flag,pid,ppid,start,stamp,utime,stime,cmd,env \
+                    = l.strip().split("|#|")
+                if not flag or eval(pid) in procs: # just ignore start status right now
+                    continue
+                if not have_taskstat_log:
+                    btime = SYS_BTIME + float(start) / CLK_TCK
+                    elapsed = float(stamp) - btime
+                    utime = float(utime) / CLK_TCK
+                    stime = float(stime) / CLK_TCK
+                    self.cur.execute("INSERT INTO proc (iid,pid,ppid,live,res," 
+                        "btime,elapsed,utime,stime,cmdline,environ) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (iid,pid,ppid,0,0,btime,elapsed,utime,stime,cmd,env))
+                # TODO: integrating ptrace log
+                else:
+                    self.cur.execute("UPDATE proc SET cmdline=?,environ=? WHERE "
+                        "pid=%s and ppid=%s" % (pid, ppid), (cmd, env))
+                     
         f.close()
         self.con.commit()
         
