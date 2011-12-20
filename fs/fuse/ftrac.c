@@ -113,7 +113,7 @@
 #define SYSC_FS_READ           3
 #define SYSC_FS_WRITE          4
 #define SYSC_FS_STATFS         99
-#define SYSC_FS_FLUSH          203
+#define SYSC_FS_FLUSH          207
 #define SYSC_FS_FSYNC          118
 
 #ifdef HAVE_SETXATTR        
