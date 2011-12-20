@@ -32,11 +32,21 @@
 
 #define _GNU_SOURCE
 
+#ifndef FTRAC_TRACE_ENABLED
 #define FTRAC_TRACE_ENABLED             1
+#endif
+#ifndef FTRAC_TRACE_SYSC_ENABLED
 #define FTRAC_TRACE_SYSC_ENABLED        1
+#endif
+#ifndef FTRAC_TRACE_PROC_ENABLED
 #define FTRAC_TRACE_PROC_ENABLED        1
+#endif
+#ifndef FTRAC_TRACE_PROC_TASKSTAT
 #define FTRAC_TRACE_PROC_TASKSTAT       1
+#endif
+#ifndef FTRAC_TRACE_PROC_PTRACE
 #define FTRAC_TRACE_PROC_PTRACE         0
+#endif
 
 #include <fuse.h>
 #include <ulockmgr.h>
